@@ -14,7 +14,7 @@ Wer seitlich zieht, bringt die Scholle zum Drehen. Wer sich um einen Pfosten pen
 | loslassen | Haken lösen |
 | R | Rennen neu starten |
 | Esc / P | Pause (mit Einstellungen) |
-| Leertaste **halten** | Kleine Räder ausfahren: Die Scholle rollt nur noch in die Richtung, in die ihre Spitze zeigt (keine Lenkung), seitliches Rutschen und Drehen werden gebremst. Loslassen: Räder rein, wieder Eis |
+| Leertaste **halten** | Kleine Räder ausfahren: Sie drehen sich beim Drücken in deine Blickrichtung, und die Scholle rollt nur noch in diese Richtung (keine Lenkung). Seitliches Rutschen wird weggebremst, Drehen blockiert. Loslassen: Räder rein, wieder Eis |
 
 ### iPad / Touch
 Wird beim ersten Antippen automatisch erkannt (am besten im Querformat). Sobald eine Tastatur benutzt wird, verschwinden die Knöpfe wieder.
@@ -24,7 +24,7 @@ Wird beim ersten Antippen automatisch erkannt (am besten im Querformat). Sobald 
 | Wischen (überall) | Umschauen / zielen |
 | HAKEN-Knopf links **halten** | Greifhaken schießen und ranziehen (beim Halten weiterwischen zum Nachzielen) |
 | loslassen | Haken lösen |
-| RÄDER-Knopf rechts **halten** | Räder ausfahren |
+| RÄDER-Knopf rechts **halten** | Räder ausfahren (zeigen in Blickrichtung beim Drücken) |
 | ❚❚ oben links | Pause |
 
 Das Fadenkreuz leuchtet **türkis**, wenn der Haken etwas treffen würde (Reichweite 80 m), und **orange**, solange du eingehakt bist.

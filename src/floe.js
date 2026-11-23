@@ -100,12 +100,14 @@ function buildWheels(grp) {
   return units;
 }
 // k: 0 = retracted, 1 = extended (eased, with a small overshoot "snap" at the end)
-function setWheels(units, k, spin) {
+// rel: wheel direction relative to the floe's nose (they swivel to where you looked)
+function setWheels(units, k, spin, rel = 0) {
   const e = k < 1 ? 1 - Math.pow(1 - k, 3) : 1;
   const ang = -PI / 2 * (1 - e) + Math.sin(k * PI) * 0.08 * (k > 0.6 ? 1 : 0);
   for (const u of units) {
     u.arm.rotation.x = ang;          // folded: arm lies backwards (+z) inside the ice
     u.wheel.rotation.x = spin;
+    u.hinge.rotation.y = rel;
     u.hinge.visible = k > 0.02;
   }
 }

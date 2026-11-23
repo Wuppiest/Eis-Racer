@@ -91,12 +91,14 @@ function updateParts(dt) {
 // ---------- state ----------
 let state = 'menu';          // menu | countdown | race | finished
 let paused = false;
-const P = { wheel: 0, wheelSpin: 0, x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
+const P = { wheel: 0, wheelSpin: 0, wheelYaw: 0, x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
 const look = { yaw: 0, pitch: 0 };
 const hook = { state: 'idle', pos: new V3(), target: new V3(), t: 0, dur: 0, hit: false, ropeLen: 0 };
 const race = { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 0, cdStep: 4, wrongT: 0, finishT: 0 };
 let holdMouse = false, holdKey = false, holdTouch = false, holdSpace = false, holdWheelTouch = false;
 const wheelsWanted = () => holdSpace || holdWheelTouch;
+// on every press the wheels turn to where you are looking right now
+function aimWheels() { if (!wheelsWanted()) P.wheelYaw = look.yaw; }
 const holding = () => holdMouse || holdKey || holdTouch;
 let shake = 0, recoil = 0, menuT = 0, pulling = false, lastTick = 0;
 
@@ -187,7 +189,7 @@ function physStep(dt) {
       const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
       const side = -Math.cos(P.yaw) * ux + Math.sin(P.yaw) * uz;
       const front = fx * ux + fz * uz;
-      P.w += side * (front > -0.2 ? 2.6 : 1.2) * dt;
+      if (P.wheel === 0) P.w += side * (front > -0.2 ? 2.6 : 1.2) * dt;
     }
   }
   trackQuery(P.x, P.z, P.idx, 40, _q);
@@ -230,13 +232,14 @@ function physStep(dt) {
       P.vx = vtx * keep - nx * vn * REST; P.vz = vtz * keep - nz * vn * REST;
       // scraping along the wall spins the floe
       const cr = nx * vtz - nz * vtx;
-      P.w += -Math.sign(cr) * Math.min(vn * 0.45, 5) + (Math.random() - 0.5) * vn * 0.1;
+      if (P.wheel === 0) P.w += -Math.sign(cr) * Math.min(vn * 0.45, 5) + (Math.random() - 0.5) * vn * 0.1;
       if (vn > 1.5 && P.wall <= 0) impact(vn, P.x + nx * FLOE_R, P.z + nz * FLOE_R, nx, nz);
     }
   }
   // wheels on the floor: only the nose direction keeps its speed
+  if (P.wheel > 0) P.w = 0; // wheels out: the floe can't spin, so the wheels keep their direction
   if (P.wheel === 1) {
-    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+    const fx = -Math.sin(P.wheelYaw), fz = -Math.cos(P.wheelYaw);
     const vf = P.vx * fx + P.vz * fz, vl = P.vx * -fz + P.vz * fx;
     const vl2 = vl * Math.exp(-SIDE_GRIP * dt);
     P.vx = fx * vf - fz * vl2; P.vz = fz * vf + fx * vl2;
@@ -423,7 +426,7 @@ document.addEventListener('mouseup', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (touchMode) setTouch(false);
-  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (!e.repeat && playing()) holdSpace = true; return; }
+  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (!e.repeat && playing()) { aimWheels(); holdSpace = true; } return; }
   if (e.code === 'KeyE' && !e.repeat) { if (playing()) { holdKey = true; fireHook(); } }
   else if (e.code === 'KeyR' && !e.repeat && (state === 'race' || state === 'countdown' || state === 'finished') && !paused) startRace();
   else if (e.code === 'KeyP' && !e.repeat) { if (paused && !settingsFromMenu) resumeGame(); else pauseGame(); }
@@ -491,7 +494,7 @@ const endHook = (e) => {
 $('tHook').addEventListener('touchend', endHook, { passive: false });
 $('tHook').addEventListener('touchcancel', endHook, { passive: false });
 const wheelsBtn = $('tWheels');
-wheelsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!playing()) return; holdWheelTouch = true; wheelsBtn.classList.add('on'); }, { passive: false });
+wheelsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!playing()) return; aimWheels(); holdWheelTouch = true; wheelsBtn.classList.add('on'); }, { passive: false });
 const endWheels = (e) => { e.preventDefault(); holdWheelTouch = false; wheelsBtn.classList.remove('on'); };
 wheelsBtn.addEventListener('touchend', endWheels, { passive: false });
 wheelsBtn.addEventListener('touchcancel', endWheels, { passive: false });
@@ -514,7 +517,7 @@ function updateVisuals(dt, now) {
   const lift = WHEEL_LIFT * clamp((P.wheel - 0.55) / 0.45, 0, 1) ** 0.7;
   P.lift = damp(P.lift || 0, lift, 18, dt);
   floe.position.set(P.x, P.y + 0.03 + P.lift, P.z);
-  setWheels(floe.userData.wheels, P.wheel, P.wheelSpin);
+  setWheels(floe.userData.wheels, P.wheel, P.wheelSpin, P.wheelYaw - P.yaw);
   floe.rotation.set(P.tiltX, P.yaw, P.tiltZ, 'YXZ');
   // camera
   const inGame = state !== 'menu';
