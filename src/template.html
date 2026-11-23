@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Eis-Racer</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  canvas#game { display: block; width: 100vw; height: 100vh; }
+  .hidden { display: none !important; }
+  button { font-family: inherit; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
+  #speedfx { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,255,255,0) 55%, rgba(200,240,255,.55) 100%); }
+  #hitfx { position: absolute; inset: 0; opacity: 0; box-shadow: inset 0 0 140px rgba(140,220,255,.9); transition: opacity .35s; }
+  #hitfx.on { opacity: 1; transition: none; }
+
+  #cross { position: absolute; left: 50%; top: 50%; width: 38px; height: 38px; margin: -19px 0 0 -19px; }
+  #cross .ring { position: absolute; inset: 7px; border: 2.5px solid rgba(255,255,255,.55); border-radius: 50%; transition: inset .12s, border-color .12s; }
+  #cross .dot { position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: #fff; box-shadow: 0 0 3px rgba(0,0,0,.6); }
+  #cross .t { position: absolute; width: 3px; height: 8px; left: 50%; margin-left: -1.5px; background: rgba(255,255,255,.75); border-radius: 2px; transition: transform .12s; }
+  #cross .t.a { top: -4px; } #cross .t.b { bottom: -4px; }
+  #cross .t.c, #cross .t.d { width: 8px; height: 3px; top: 50%; margin: -1.5px 0 0 0; left: auto; }
+  #cross .t.c { left: -4px; } #cross .t.d { right: -4px; }
+  #cross.ok .ring { inset: 2px; border-color: #4ff2ff; box-shadow: 0 0 10px rgba(79,242,255,.7); }
+  #cross.ok .dot { background: #4ff2ff; }
+  #cross.ok .t { background: #4ff2ff; }
+  #cross.hooked .ring { inset: 9px; border-color: #ffb020; box-shadow: 0 0 12px rgba(255,176,32,.8); }
+  #cross.hooked .dot, #cross.hooked .t { background: #ffb020; }
+  #crossDist { position: absolute; left: 50%; top: calc(50% + 26px); transform: translateX(-50%); font-size: 13px; font-weight: 800; color: #4ff2ff; text-shadow: 0 1px 3px rgba(0,0,0,.8); font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .15s; }
+  #crossDist.show { opacity: 1; }
+
+  #tacho { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: 280px; height: 182px; }
+  #tacho canvas { width: 280px; height: 182px; display: block; }
+
+  #toast { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); font-size: 26px; font-weight: 900; padding: 10px 24px; background: rgba(15,18,32,.66); border: 2px solid rgba(255,255,255,.18); border-radius: 14px; opacity: 0; transition: opacity .35s; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #toast.show { opacity: 1; transition: none; }
+  #toast.warn { background: rgba(200,30,30,.78); }
+  #toast b { color: #ffe066; } #toast i { font-style: normal; color: #4ff26a; }
+
+  #count { position: fixed; top: 42%; left: 50%; transform: translate(-50%,-50%); z-index: 8; font-size: 160px; font-weight: 900; pointer-events: none; color: #ffe066; text-shadow: 0 6px 0 #a5560f, 0 0 40px rgba(0,0,0,.5); }
+  #count.go { color: #4ff26a; text-shadow: 0 6px 0 #1a7a2a, 0 0 40px rgba(0,0,0,.5); }
+  #count.anim { animation: cnt .9s ease-out forwards; }
+  @keyframes cnt { 0% { transform: translate(-50%,-50%) scale(2.2); opacity: 0; } 20% { transform: translate(-50%,-50%) scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: translate(-50%,-50%) scale(.8); opacity: 0; } }
+  #hint { position: absolute; bottom: 210px; left: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 800; padding: 8px 18px; background: rgba(15,18,32,.62); border-radius: 12px; white-space: nowrap; transition: opacity .6s; }
+  kbd { display: inline-block; min-width: 26px; padding: 1px 7px; border-radius: 6px; background: #ffd21f; color: #1d2230; border-bottom: 3px solid #a5860f; font-family: inherit; font-weight: 900; text-align: center; font-size: .9em; }
+
+  /* ---------- menus ---------- */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; }
+  #menu { justify-content: flex-start; background: linear-gradient(90deg, rgba(8,14,30,.88) 0%, rgba(8,14,30,.55) 45%, rgba(8,14,30,0) 75%); padding-left: 6vw; }
+  .mcol { width: min(460px, calc(100vw - 32px)); }
+  h1.logo { margin: 0 0 6px; font-size: 84px; font-weight: 900; letter-spacing: -2px; line-height: .9; transform: rotate(-3deg); font-style: italic; }
+  h1.logo span { display: block; background: linear-gradient(180deg,#f0fdff,#8be9ff 55%,#3d8bff); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 0 #0b2a5a); }
+  h1.logo span + span { background: linear-gradient(180deg,#ffe066,#ff8a3d); -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 4px 0 #7a2e0b); margin-left: 54px; }
+  .tag { font-size: 16px; font-weight: 700; opacity: .88; margin: 16px 0 22px; line-height: 1.45; }
+  .btn { pointer-events: auto; display: block; width: 100%; margin: 10px 0; padding: 15px 26px; font-size: 21px; font-weight: 900; color: #1a1205; background: linear-gradient(180deg,#ffe066,#ffae3d); border: 0; border-radius: 14px; cursor: pointer; box-shadow: 0 5px 0 #a5560f; text-align: left; transition: transform .08s; }
+  .btn:hover { filter: brightness(1.08); transform: translateX(4px); }
+  .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #a5560f; }
+  .btn.ice { color: #06213f; background: linear-gradient(180deg,#c9f6ff,#6fd3ff); box-shadow: 0 5px 0 #2a7ab0; }
+  .btn.grey { color: #fff; background: linear-gradient(180deg,#4b5275,#363b58); box-shadow: 0 5px 0 #1f2236; }
+  .btn .ic { display: inline-block; width: 34px; }
+  .best { display: flex; gap: 12px; margin: 4px 0 6px; }
+  .best div { flex: 1; padding: 10px 14px; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.12); border-radius: 12px; }
+  .best small { display: block; font-size: 11px; font-weight: 800; letter-spacing: 2px; opacity: .7; }
+  .best b { font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; color: #8be9ff; }
+  .keys { margin-top: 20px; font-size: 14px; line-height: 2; opacity: .92; }
+  .keys kbd { background: #2c3150; color: #fff; border: 1px solid #4a5280; border-bottom-width: 3px; font-size: 12px; min-width: 24px; }
+  .panelWrap { background: radial-gradient(ellipse at center, rgba(20,24,40,.55), rgba(5,6,12,.85)); }
+  .panel { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 26px 30px; background: rgba(16,20,34,.95); border: 2px solid rgba(255,255,255,.12); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.5); text-align: center; }
+  .panel h2 { margin: 0 0 16px; font-size: 34px; font-weight: 900; }
+  .panel .btn { text-align: center; }
+  .row2 { display: flex; gap: 12px; } .row2 .btn { flex: 1; }
+  .settings { display: grid; grid-template-columns: 1fr auto; gap: 14px 16px; align-items: center; text-align: left; font-size: 16px; font-weight: 700; margin: 8px 0 18px; }
+  .settings input[type=range] { width: 200px; accent-color: #6fd3ff; }
+  #result h2 { font-size: 44px; font-style: italic; background: linear-gradient(180deg,#ffe066,#ff8a3d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #resTotal { font-size: 54px; font-weight: 900; font-variant-numeric: tabular-nums; color: #8be9ff; line-height: 1; }
+  #resRec { margin: 8px 0 4px; font-size: 18px; font-weight: 900; color: #ffe066; min-height: 24px; }
+  #resLaps { list-style: none; padding: 0; margin: 14px auto 18px; max-width: 320px; text-align: left; }
+  #resLaps li { display: flex; justify-content: space-between; padding: 7px 12px; margin: 4px 0; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  #resLaps li.fast { background: rgba(79,242,106,.16); color: #8dffa3; }
+  #resLaps li span { opacity: .75; }
+  #lockMsg { position: fixed; left: 50%; bottom: 40%; transform: translateX(-50%); z-index: 12; padding: 14px 22px; border-radius: 14px; background: rgba(15,18,32,.8); font-weight: 800; font-size: 18px; cursor: pointer; }
+  @media (max-width: 760px), (max-height: 560px) { h1.logo { font-size: 56px; } #tacho { transform: translateX(-50%) scale(.8); transform-origin: 50% 100%; } }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="speedfx"></div>
+  <div id="hitfx"></div>
+  <div id="cross"><div class="ring"></div><div class="dot"></div><div class="t a"></div><div class="t b"></div><div class="t c"></div><div class="t d"></div></div>
+  <div id="crossDist"></div>
+  <div id="toast"></div>
+  <div id="hint"><kbd>E</kbd> / <kbd>Linksklick</kbd> halten = Greifhaken &nbsp;·&nbsp; loslassen = lösen</div>
+  <div id="tacho"><canvas id="tachoCv" width="560" height="364"></canvas></div>
+</div>
+<div id="count" class="hidden"></div>
+
+<div id="menu" class="overlay">
+  <div class="mcol">
+    <h1 class="logo"><span>EIS</span><span>RACER</span></h1>
+    <div class="tag">Du sitzt auf einer Eisscholle mitten in einer Kart-Halle. Kein Gas, keine Lenkung, nur dein <b>Greifhaken</b>.<br>Häng dich irgendwo ein, zieh dich ran und schleuder dich durch die Kurven. 3 Runden, auf Zeit.</div>
+    <div class="best"><div><small>BESTZEIT</small><b id="bestTotal">–:––.––</b></div><div><small>BESTE RUNDE</small><b id="bestLap">–:––.––</b></div></div>
+    <button class="btn" id="bStart"><span class="ic">🏁</span>Rennen starten</button>
+    <button class="btn grey" id="bOpts"><span class="ic">⚙️</span>Einstellungen</button>
+    <div class="keys">
+      <kbd>Maus</kbd> umschauen / zielen<br>
+      <kbd>E</kbd> oder <kbd>Linksklick</kbd> halten: Haken schießen &amp; ranziehen, loslassen: lösen<br>
+      <kbd>R</kbd> Neustart &nbsp; <kbd>Esc</kbd> Pause
+    </div>
+  </div>
+</div>
+
+<div id="pause" class="overlay panelWrap hidden">
+  <div class="panel">
+    <h2>Pause</h2>
+    <div class="settings">
+      <span>Maus-Empfindlichkeit</span><input type="range" id="sSens" min="0.3" max="2.5" step="0.05">
+      <span>Lautstärke</span><input type="range" id="sVol" min="0" max="1" step="0.05">
+      <span>Sichtfeld (FOV)</span><input type="range" id="sFov" min="65" max="100" step="1">
+      <span>Maus invertieren</span><input type="checkbox" id="sInv">
+    </div>
+    <button class="btn ice" id="bResume">▶ Weiter</button>
+    <div class="row2"><button class="btn" id="bRestart">↻ Neustart</button><button class="btn grey" id="bMenu">Hauptmenü</button></div>
+  </div>
+</div>
+
+<div id="result" class="overlay panelWrap hidden">
+  <div class="panel">
+    <h2>ZIEL!</h2>
+    <div id="resTotal">0:00.00</div>
+    <div id="resRec"></div>
+    <ul id="resLaps"></ul>
+    <div class="row2"><button class="btn ice" id="bAgain">↻ Nochmal</button><button class="btn grey" id="bMenu2">Hauptmenü</button></div>
+  </div>
+</div>
+
+<div id="lockMsg" class="hidden">🖱️ Klicken, um weiterzufahren</div>
+
+<script>/*__THREE__*/</script>
+<script>
+/*__GAME__*/
+</script>
+</body>
+</html>
