@@ -3,24 +3,32 @@
 //  + invisible grapple proxies (everything you see can be hooked)
 // ============================================================
 const C = (h) => new T.Color(h);
-const PAL = {
-  floor1: C('#a7aeb6'), floor2: C('#9fa6ae'), floorLine: C('#f2c200'),
-  asphalt: C('#3c404a'), white: C('#f3f4f6'), red: C('#e8322b'), blue: C('#2a6fdb'), yellow: C('#ffcc1f'),
-  tire: C('#24262c'), tireHole: C('#111216'),
-  concrete: C('#c9ced5'), concreteDark: C('#9097a1'), under: C('#7f8690'),
-  wallLow: C('#e3e6eb'), wallUp: C('#6f92b8'), wallRib: C('#62849f'), kick: C('#3a404c'),
-  column: C('#2c3a5c'), truss: C('#a9b3c2'), purlin: C('#8b95a6'), ceiling: C('#4b5567'),
-  lampHouse: C('#2f3542'), lamp: C('#fff8e6'), window: C('#d6ebff'), sky: C('#e6f3ff'),
-  steel: C('#b3bdc9'), black: C('#1d2029'),
+const PAL_BASE = {
+  floor1: '#a7aeb6', floor2: '#9fa6ae', floorLine: '#f2c200',
+  asphalt: '#3c404a', white: '#f3f4f6', red: '#e8322b', blue: '#2a6fdb', yellow: '#ffcc1f',
+  kerbA: '#e8322b', kerbB: '#f3f4f6', edge: '#f3f4f6', curbA: '#e8322b', curbB: '#f3f4f6',
+  tire: '#24262c', tireHole: '#111216', barA: '#e8322b', barB: '#f3f4f6',
+  concrete: '#c9ced5', concreteDark: '#9097a1', under: '#7f8690', deckStripe: '#2a6fdb',
+  wallLow: '#e3e6eb', wallUp: '#6f92b8', wallRib: '#62849f', kick: '#3a404c', wallStripe: '#2a6fdb',
+  column: '#2c3a5c', truss: '#a9b3c2', purlin: '#8b95a6', ceiling: '#4b5567',
+  lampHouse: '#2f3542', lamp: '#fff8e6', window: '#d6ebff', sky: '#e6f3ff',
+  steel: '#b3bdc9', black: '#1d2029',
 };
+let PAL = {};
+function setPalette(theme) {
+  PAL = {};
+  const src = Object.assign({}, PAL_BASE, (theme && theme.pal) || {});
+  for (const k in src) PAL[k] = C(src[k]);
+}
+setPalette(null);
 const WHITE = C('#ffffff');
 
-const WORLD = { hit: [], anchors: [], lights: [], start: null, flags: [] };
+const WORLD = { group: null, hit: [], dynHit: [], anchors: [], lights: [], start: null, flags: [], spin: [], theme: {} };
 
 // ---------- grapple proxies, chunked so the raycaster can skip far cells ----------
 const HIT_CELL = 36;
-const hitCells = new Map();
-const hitGlobal = new MeshAcc();
+let hitCells = new Map();
+let hitGlobal = new MeshAcc();
 function hitAccAt(x, z) {
   const k = Math.floor(x / HIT_CELL) + ',' + Math.floor(z / HIT_CELL);
   let a = hitCells.get(k);
@@ -82,55 +90,104 @@ const SPONSORS = [
 ];
 
 // ============================================================
-function buildWorld(scene) {
+// free everything of the previous map
+const CACHED_GEO = () => new Set(Object.values(GEO));
+function disposeWorld(scene) {
+  if (!WORLD.group) return;
+  const keep = CACHED_GEO();
+  const mats = new Set();
+  WORLD.group.traverse((o) => {
+    if (o.geometry && !keep.has(o.geometry)) o.geometry.dispose();
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.add(m));
+  });
+  for (const m of mats) { if (m === VCMAT || m === GLOWMAT) continue; if (m.map) m.map.dispose(); m.dispose(); }
+  for (const h of WORLD.hit) if (!h.userData.dyn) h.geometry.dispose();
+  scene.remove(WORLD.group);
+  WORLD.group = null;
+}
+function buildWorld(def, scene) {
+  disposeWorld(scene);
+  const theme = def.theme || {};
+  setPalette(theme);
+  Object.assign(WORLD, { group: new T.Group(), hit: [], dynHit: [], anchors: [], lights: [], flags: [], spin: [], theme, def });
+  hitCells = new Map(); hitGlobal = new MeshAcc();
+  const root = WORLD.group;
+  scene.add(root);
   const S = new MeshAcc();    // static hall shell: receives shadows only
   const D = new MeshAcc();    // track, barriers, decoration: casts shadows
-  const G = new MeshAcc();    // self-lit (lamps, windows)
+  const G = new MeshAcc();    // self-lit (lamps, windows, neon)
   rng = mulberry32(42);
 
-  buildFloor(S);
-  buildHall(S, D, G);
-  buildTrack(D);
-  buildBarriers(D);
+  buildFloor(S, theme);
+  buildHall(S, D, G, theme);
+  buildTrack(D, G, theme);
+  buildBarriers(D, G, theme);
   buildBridgeSupports(D);
-  buildGantry(D, scene);
-  buildDecor(D, G, scene);
+  buildGantry(D, root);
+  rng = mulberry32(7 + def.id.length * 13);
+  DECO_USED = [];
   buildAnchors(D, G);
+  (DECOR[theme.decor || 'arena'] || DECOR.arena)(D, G, root, theme);
+  buildElements(def, root);
 
-  const ms = S.build(VCMAT); ms.receiveShadow = true; scene.add(ms);
-  const md = D.build(VCMAT); md.receiveShadow = true; md.castShadow = true; scene.add(md);
-  const mg = G.build(GLOWMAT); scene.add(mg);
-  buildSigns(scene);
+  const ms = S.build(VCMAT); ms.receiveShadow = true; root.add(ms);
+  const md = D.build(VCMAT); md.receiveShadow = true; md.castShadow = true; root.add(md);
+  const mg = G.build(GLOWMAT); root.add(mg);
+  buildSigns(root, def);
 
   // grapple proxies (not rendered)
   const HITMAT = new T.MeshBasicMaterial({ side: T.DoubleSide });
   const mk = (acc) => { const m = new T.Mesh(acc.geometry(), HITMAT); m.updateMatrixWorld(true); WORLD.hit.push(m); };
   mk(hitGlobal);
   for (const acc of hitCells.values()) if (acc.count) mk(acc);
+  for (const m of WORLD.dynHit) WORLD.hit.push(m);
 
   // start: 12 m before the line, on the centerline
   const si = NS - Math.round(12 / DS), s = TS[si];
   WORLD.start = { x: s.x, z: s.z, idx: si, yaw: Math.atan2(-s.tx, -s.tz) };
 }
 
-// ---------- floor: big epoxy tiles + painted walkways ----------
-function buildFloor(S) {
-  const t = 4;
-  for (let x = HALL.x0; x < HALL.x1; x += t) for (let z = HALL.z0; z < HALL.z1; z += t) {
-    const c = ((x + z) / t) & 1 ? PAL.floor1 : PAL.floor2;
-    S.quad(new V3(x, 0, z), new V3(x + t, 0, z), new V3(x + t, 0, z + t), new V3(x, 0, z + t), c, 0.02, UP);
+// ---------- floor: tiles / planks / parking deck / ice / grid + painted walkways ----------
+function buildFloor(S, theme) {
+  const type = theme.floor || 'tiles';
+  const q = (x0, z0, x1, z1, c, j = 0.02) => S.quad(new V3(x0, 0, z0), new V3(x1, 0, z0), new V3(x1, 0, z1), new V3(x0, 0, z1), c, j, UP);
+  if (type === 'planks') {
+    // long wooden boards with staggered joints
+    const bw = 1.2;
+    for (let z = HALL.z0, row = 0; z < HALL.z1; z += bw, row++) {
+      let x = HALL.x0 - (row % 3) * 2.2;
+      while (x < HALL.x1) { const L = R(4, 7); const x1 = Math.min(HALL.x1, x + L); q(Math.max(HALL.x0, x), z, x1, Math.min(HALL.z1, z + bw), row & 1 ? PAL.floor1 : PAL.floor2, 0.05); x = x1; }
+    }
+  } else {
+    const t = type === 'grid' ? 8 : type === 'ice' ? 6 : 4;
+    for (let x = HALL.x0; x < HALL.x1; x += t) for (let z = HALL.z0; z < HALL.z1; z += t) {
+      const c = type === 'parking' ? PAL.floor1 : (((x + z) / t) & 1 ? PAL.floor1 : PAL.floor2);
+      q(x, z, Math.min(HALL.x1, x + t), Math.min(HALL.z1, z + t), c, type === 'ice' ? 0.012 : type === 'parking' ? 0.035 : 0.02);
+    }
   }
-  // yellow safety lines 2.5 m off the walls
-  const y = 0.012, m = 2.5, w = 0.18;
-  const line = (ax, az, bx, bz) => { const o = new Obj(); segBox(o, ax, az, bx, bz, y - 0.004, w, 0.008, PAL.floorLine); S.addObj(o); };
+  const y = 0.012;
+  const line = (ax, az, bx, bz, w = 0.18, c = PAL.floorLine) => { const o = new Obj(); segBox(o, ax, az, bx, bz, y - 0.004, w, 0.008, c); S.addObj(o); };
+  if (type === 'grid') for (let x = HALL.x0 + 8; x < HALL.x1; x += 8) line(x, HALL.z0, x, HALL.z1, 0.08);
+  if (type === 'grid') for (let z = HALL.z0 + 8; z < HALL.z1; z += 8) line(HALL.x0, z, HALL.x1, z, 0.08);
+  if (type === 'parking') {
+    // parking bays painted along the walls
+    for (const zz of [HALL.z0 + 0.5, HALL.z1 - 5.5]) for (let x = HALL.x0 + 4; x < HALL.x1 - 4; x += 2.6) line(x, zz, x, zz + 5, 0.12, PAL.white);
+  }
+  if (type === 'planks') {
+    // gym court lines
+    const cx = (HALL.x0 + HALL.x1) / 2, cz = (HALL.z0 + HALL.z1) / 2, w = (HALL.x1 - HALL.x0) * 0.42, d = (HALL.z1 - HALL.z0) * 0.4;
+    line(cx - w, cz - d, cx + w, cz - d, 0.1); line(cx - w, cz + d, cx + w, cz + d, 0.1); line(cx - w, cz - d, cx - w, cz + d, 0.1); line(cx + w, cz - d, cx + w, cz + d, 0.1); line(cx, cz - d, cx, cz + d, 0.1);
+  }
+  // safety lines 2.5 m off the walls
+  const m = 2.5;
   line(HALL.x0 + m, HALL.z0 + m, HALL.x1 - m, HALL.z0 + m); line(HALL.x0 + m, HALL.z1 - m, HALL.x1 - m, HALL.z1 - m);
   line(HALL.x0 + m, HALL.z0 + m, HALL.x0 + m, HALL.z1 - m); line(HALL.x1 - m, HALL.z0 + m, HALL.x1 - m, HALL.z1 - m);
-  hitBox(HALL.x1 - HALL.x0, 0.2, HALL.z1 - HALL.z0, 0, -0.1, 0, 0, hitGlobal);
+  hitBox(HALL.x1 - HALL.x0, 0.2, HALL.z1 - HALL.z0, (HALL.x0 + HALL.x1) / 2, -0.1, (HALL.z0 + HALL.z1) / 2, 0, hitGlobal);
 }
 const UP = new V3(0, 1, 0), DOWN = new V3(0, -1, 0);
 
 // ---------- hall: walls, columns, windows, roof trusses, lamps ----------
-function buildHall(S, D, G) {
+function buildHall(S, D, G, theme) {
   const H = HALL.h;
   const walls = [
     { a: [HALL.x0, HALL.z0], b: [HALL.x1, HALL.z0], n: [0, 1] },
@@ -149,19 +206,25 @@ function buildHall(S, D, G) {
     };
     full(0, 0.35, PAL.kick, 0.03);
     full(0.35, 2.9, PAL.wallLow, 0, 0.015);
-    full(2.9, 3.5, PAL.blue, 0.02);
+    full(2.9, 3.5, PAL.wallStripe, 0.02);
     full(3.5, H, PAL.wallUp, 0, 0.02);
     // corrugation ribs (skip the window band)
     for (let k = 0.6; k < L; k += 1.2) {
       const [px, pz] = off(k);
       const rx = px + nx * 0.3, rz = pz + nz * 0.3;
-      for (const [y0, y1] of [[3.5, 10.6], [13.4, H]]) o.box(0.3, y1 - y0, 0.3, rx, (y0 + y1) / 2, rz, PAL.wallRib, { ry: segRy(0, 0, dx, dz) });
+      for (const [y0, y1] of [[3.5, H - 6.4], [H - 3.6, H]]) o.box(0.3, y1 - y0, 0.3, rx, (y0 + y1) / 2, rz, PAL.wallRib, { ry: segRy(0, 0, dx, dz) });
     }
     S.addObj(o);
+    if (theme.neon) {
+      const g = new Obj(), p0 = [ax + nx * 0.06, az + nz * 0.06], p1 = [bx + nx * 0.06, bz + nz * 0.06];
+      segBox(g, p0[0], p0[1], p1[0], p1[1], 3.6, 0.08, 0.16, C(theme.neon[0]));
+      segBox(g, p0[0], p0[1], p1[0], p1[1], 0.5, 0.08, 0.1, C(theme.neon[1] || theme.neon[0]));
+      G.addObj(g);
+    }
     // windows (self-lit) between the columns
     for (let k = 3; k + 3 <= L; k += 4) {
       const [px, pz] = off(k + 2);
-      const g = new Obj(); g.box(3.3, 2.5, 0.1, px + nx * 0.3, 12, pz + nz * 0.3, PAL.window, { ry: segRy(0, 0, dx, dz) });
+      const g = new Obj(); g.box(3.3, 2.5, 0.1, px + nx * 0.3, H - 5, pz + nz * 0.3, PAL.window, { ry: segRy(0, 0, dx, dz) });
       G.addObj(g);
     }
     // columns every 12 m
@@ -180,19 +243,21 @@ function buildHall(S, D, G) {
   }
   // ceiling
   {
-    const o = new Obj(); o.box(HALL.x1 - HALL.x0, 0.3, HALL.z1 - HALL.z0, 0, H + 0.15, 0, PAL.ceiling); S.addObj(o);
-    hitBox(HALL.x1 - HALL.x0, 0.3, HALL.z1 - HALL.z0, 0, H + 0.15, 0, 0, hitGlobal);
+    const cx = (HALL.x0 + HALL.x1) / 2, cz = (HALL.z0 + HALL.z1) / 2;
+    const o = new Obj(); o.box(HALL.x1 - HALL.x0, 0.3, HALL.z1 - HALL.z0, cx, H + 0.15, cz, PAL.ceiling); S.addObj(o);
+    hitBox(HALL.x1 - HALL.x0, 0.3, HALL.z1 - HALL.z0, cx, H + 0.15, cz, 0, hitGlobal);
   }
   // skylights between trusses
-  for (let x = HALL.x0 + 18; x < HALL.x1 - 6; x += 24) for (const z of [-42, 0, 42]) {
-    const g = new Obj(); g.box(6, 0.1, 16, x, H - 0.02, z, PAL.sky); G.addObj(g);
+  for (let x = HALL.x0 + 18; x < HALL.x1 - 6; x += 24) for (const z of [0.2, 0.5, 0.8].map((f) => lerp(HALL.z0, HALL.z1, f))) {
+    const g = new Obj(); g.box(6, 0.1, (HALL.z1 - HALL.z0) * 0.2, x, H - 0.02, z, PAL.sky); G.addObj(g);
   }
   // trusses (span along z) every 12 m
-  const yb = 14.2, yt = H - 0.4;
+  const yb = H - 2.8, yt = H - 0.4;
   for (let x = HALL.x0 + 12; x < HALL.x1 - 1; x += 12) {
     const o = new Obj();
-    o.box(0.35, 0.35, HALL.z1 - HALL.z0, x, yb, 0, PAL.truss);
-    o.box(0.35, 0.35, HALL.z1 - HALL.z0, x, yt, 0, PAL.truss);
+    const zc = (HALL.z0 + HALL.z1) / 2;
+    o.box(0.35, 0.35, HALL.z1 - HALL.z0, x, yb, zc, PAL.truss);
+    o.box(0.35, 0.35, HALL.z1 - HALL.z0, x, yt, zc, PAL.truss);
     let up = true;
     for (let z = HALL.z0; z < HALL.z1 - 0.1; z += 3.5) {
       o.bar(new V3(x, yb, z), new V3(x, yt, z), 0.16, PAL.truss);
@@ -212,22 +277,23 @@ function buildHall(S, D, G) {
     }
   }
   // purlins along x
-  for (let z = HALL.z0 + 7; z < HALL.z1; z += 7) { const o = new Obj(); o.box(HALL.x1 - HALL.x0, 0.25, 0.2, 0, H - 0.15, z, PAL.purlin); S.addObj(o); }
+  for (let z = HALL.z0 + 7; z < HALL.z1; z += 7) { const o = new Obj(); o.box(HALL.x1 - HALL.x0, 0.25, 0.2, (HALL.x0 + HALL.x1) / 2, H - 0.15, z, PAL.purlin); S.addObj(o); }
 }
 
 // ---------- track surface: asphalt ribbon, kerbs, start/finish, deck sides ----------
 let KERB = null;
-function buildTrack(D) {
+function buildTrack(D, G, theme) {
   // kerbs on curved parts (spread a bit so they start before the corner)
   KERB = new Uint8Array(NS);
   for (let i = 0; i < NS; i++) if (Math.abs(TS[i].k) > 1 / 34) for (let d = -8; d <= 8; d++) KERB[((i + d) % NS + NS) % NS] = 1;
   const ew = (i) => (KERB[i] ? 1.1 : 0.32);
-  const yS = (s) => s.h + 0.03;
+  // flat crossings: the later pass lies a hair higher (no z-fighting), no edge paint inside the crossing
+  const yS = (s) => s.h + 0.03 + (s.flatTop ? 0.012 : 0);
   for (let i = 0; i < NS; i++) {
     const a = TS[i], b = tsAt(i + 1), ib = (i + 1) % NS;
     const ya = yS(a), yb = yS(b);
     const la = [-HW, -HW + ew(i), HW - ew(i), HW], lb = [-HW, -HW + ew(ib), HW - ew(ib), HW];
-    const edge = KERB[i] ? ((Math.floor(i / 3) & 1) ? PAL.red : PAL.white) : PAL.white;
+    const edge = a.flatNear ? PAL.asphalt : KERB[i] ? ((Math.floor(i / 3) & 1) ? PAL.kerbA : PAL.kerbB) : PAL.edge;
     const cols = [edge, PAL.asphalt, edge];
     for (let k = 0; k < 3; k++) {
       D.quad(tp(a, la[k], ya), tp(a, la[k + 1], ya), tp(b, lb[k + 1], yb), tp(b, lb[k], yb), cols[k], k === 1 ? 0.035 : 0, UP);
@@ -238,7 +304,7 @@ function buildTrack(D) {
       for (const sd of [-1, 1]) {
         D.quad(tp(a, sd * HW, ya), tp(a, sd * W2, ya), tp(b, sd * W2, yb), tp(b, sd * HW, yb), PAL.concrete, 0, UP);
         const out = new V3(a.nx * sd, 0, a.nz * sd);
-        D.quad(tp(a, sd * W2, ya), tp(a, sd * W2, ya - 0.3), tp(b, sd * W2, yb - 0.3), tp(b, sd * W2, yb), PAL.blue, 0, out);
+        D.quad(tp(a, sd * W2, ya), tp(a, sd * W2, ya - 0.3), tp(b, sd * W2, yb - 0.3), tp(b, sd * W2, yb), PAL.deckStripe, 0, out);
         D.quad(tp(a, sd * W2, ya - 0.3), tp(a, sd * W2, bot(a)), tp(b, sd * W2, bot(b)), tp(b, sd * W2, yb - 0.3), PAL.concrete, 0.03, out);
         // solid embankment on the low part of the ramps
         if (EMBANK(a) || EMBANK(b)) D.quad(tp(a, sd * W2, bot(a)), tp(a, sd * W2, 0), tp(b, sd * W2, 0), tp(b, sd * W2, bot(b)), PAL.concreteDark, 0.04, out);
@@ -287,7 +353,40 @@ function edgeBlocked(s, sd) {
   }
   return false;
 }
-function buildBarriers(D) {
+// barrier styles (everything except tires is built from 1 m segments)
+const BARRIER = {
+  blocks: { h: 0.85, off: 0.45, seg(o, a, b, y, i, G) { // water-filled plastic barriers
+    const c = (Math.floor(i / 2) & 1) ? PAL.barA : PAL.barB;
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.25, 0.7, 0.5, c, { ext: -0.06 });
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.67, 0.45, 0.36, c, { ext: -0.1 });
+  } },
+  concrete: { h: 0.85, off: 0.45, seg(o, a, b, y, i, G) { // jersey barrier
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.18, 0.72, 0.36, PAL.concrete, { ext: 0.02, jit: 0.03 });
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.6, 0.34, 0.5, PAL.concrete, { ext: 0.02, jit: 0.03 });
+    if (i % 8 < 2) segBox(o, a.x, a.z, b.x, b.z, y + 0.6, 0.36, 0.2, (i % 16 < 2) ? PAL.barA : PAL.barB, { ext: 0.03 });
+  } },
+  ice: { h: 0.9, off: 0.5, seg(o, a, b, y, i, G) { // stacked ice blocks
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.3, 0.9, 0.6, PAL.barA, { ext: -0.04, jit: 0.06 });
+    const m = new V3().lerpVectors(a, b, 0.5);
+    segBox(o, a.x + (m.x - a.x) * 0.2, a.z + (m.z - a.z) * 0.2, b.x, b.z, y + 0.75, 0.75, 0.3, PAL.barB, { ext: -0.1, jit: 0.06 });
+  } },
+  mats: { h: 1.15, off: 0.35, seg(o, a, b, y, i, G) { // upright gym mats
+    const c = (Math.floor(i / 4) & 1) ? PAL.barA : PAL.barB;
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.58, 0.45, 1.16, c, { ext: -0.03 });
+    segBox(o, a.x, a.z, b.x, b.z, y + 1.12, 0.47, 0.06, PAL.white, { ext: -0.03 });
+  } },
+  neon: { h: 0.75, off: 0.35, seg(o, a, b, y, i, G) { // black blocks with a glowing top strip
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.35, 0.5, 0.7, PAL.barB, { ext: 0.02 });
+    const g = new Obj(); segBox(g, a.x, a.z, b.x, b.z, y + 0.73, 0.2, 0.06, (Math.floor(i / 10) & 1) ? PAL.barA : C((WORLD.theme.neon || ['#29e6ff', '#29e6ff'])[1]), { ext: 0.02 }); G.addObj(g);
+  } },
+  boards: { h: 1.15, off: 0.2, seg(o, a, b, y, i, G) { // ice hockey boards
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.12, 0.2, 0.24, PAL.barA, { ext: 0.02 });
+    segBox(o, a.x, a.z, b.x, b.z, y + 0.64, 0.14, 0.8, PAL.white, { ext: 0.02 });
+    segBox(o, a.x, a.z, b.x, b.z, y + 1.08, 0.26, 0.1, PAL.barB, { ext: 0.02 });
+  } },
+};
+function buildBarriers(D, G, theme) {
+  const style = BARRIER[theme.barrier];
   const tireStack = (o, x, z, top) => {
     for (let k = 0; k < 3; k++) o.cyl(0.5, 0.3, x, 0.15 + k * 0.3, z, PAL.tire, { seg: 9, jit: 0.06 });
     o.cyl(0.506, 0.14, x, 0.75, z, top, { seg: 9 });
@@ -299,10 +398,14 @@ function buildBarriers(D) {
       const s = tsAt(i);
       const ground = s.h < 0.35 && i < NS;
       const ok = ground && !edgeBlocked(s, sd);
-      // tire stacks every metre
-      if (ok && i % 2 === 0) {
+      // other barrier styles: 1 m segments
+      if (ok && style && i % 2 === 0) {
+        const o = new Obj(), a = tp(s, sd * (HW + style.off), 0), b = tp(tsAt(i + 2), sd * (HW + style.off), 0);
+        style.seg(o, a, b, 0, i, G);
+        D.addObj(o);
+      } else if (ok && i % 2 === 0) {
         const o = new Obj(), p = tp(s, sd * (HW + 0.55), 0);
-        const top = (Math.floor(i / 4) & 1) ? PAL.red : PAL.white;
+        const top = (Math.floor(i / 4) & 1) ? PAL.barA : PAL.barB;
         tireStack(o, p.x, p.z, top);
         D.addObj(o);
       }
@@ -310,14 +413,14 @@ function buildBarriers(D) {
       if (ok && runStart === null) runStart = i;
       if (runStart !== null && (!ok || i - runStart >= 8)) {
         const a = tp(tsAt(runStart), sd * (HW + 0.55), 0), b = tp(tsAt(i), sd * (HW + 0.55), 0);
-        if (i > runStart) hitSeg(a.x, a.z, b.x, b.z, 0.45, 1.0, 0.9);
+        if (i > runStart) hitSeg(a.x, a.z, b.x, b.z, 0.5, 1.0, style ? style.h : 0.9);
         runStart = ok ? i : null;
       }
       // elevated: curb + rail
       if (s.h >= 0.3 && i < NS && i % 2 === 0) {
         const n = tsAt(i + 2), o = new Obj();
         const a = tp(s, sd * (HW + 0.35), 0), b = tp(n, sd * (HW + 0.35), 0);
-        const col = (Math.floor(i / 6) & 1) ? PAL.red : PAL.white;
+        const col = (Math.floor(i / 6) & 1) ? PAL.curbA : PAL.curbB;
         const ym = (s.h + n.h) / 2;
         segBox(o, a.x, a.z, b.x, b.z, ym + 0.3, 0.6, 0.6, col, { ext: 0.05 });
         segBox(o, a.x, a.z, b.x, b.z, ym + 1.25, 0.12, 0.14, PAL.steel, { ext: 0.05 });
@@ -426,7 +529,7 @@ function kartObj(color, num) {
   o.box(0.3, 0.22, 0.02, 0, 0.38, -1.06, PAL.white);
   return o;
 }
-function buildDecor(D, G, scene) {
+function decorArena(D, G, scene, theme) {
   const place = (x, z, r, fn) => { if (insideHall(x, z, r + 1) && clearOfTrack(x, z, r)) { fn(x, z); return true; } return false; };
 
   // --- paddock with parked karts in the big infield ---
@@ -615,6 +718,7 @@ function buildAnchors(D, G) {
       hitBox(0.8, H + 1.2, 0.8, p.x, (H + 1.2) / 2, p.z);
       hitBox(1.5, 0.6, 1.5, p.x, base + H + 0.6, p.z);
       WORLD.anchors.push(new V3(p.x, base + H + 0.6, p.z));
+      DECO_USED.push({ x: p.x, z: p.z, r: 1.5 });
       last = s.i * DS;
       break;
     }
@@ -622,7 +726,8 @@ function buildAnchors(D, G) {
 }
 
 // ---------- sponsor boards on the walls, big logos ----------
-function buildSigns(scene) {
+function buildSigns(scene, def) {
+  const theme = def.theme || {}, list = theme.sponsors || SPONSORS;
   let k = 0;
   const wallSign = (x, z, ry, w, h, y, opts) => {
     const m = signMesh(w, h, 128, (g, cw, ch) => drawSign(g, cw, ch, opts));
@@ -630,12 +735,12 @@ function buildSigns(scene) {
   };
   // lower wall boards between columns
   for (let x = HALL.x0 + 18; x < HALL.x1 - 10; x += 12) {
-    wallSign(x, HALL.z1 - 0.52, PI, 9, 1.8, 1.7, SPONSORS[k++ % SPONSORS.length]);
-    if (x < -44 || x > 44) wallSign(x, HALL.z0 + 0.52, 0, 9, 1.8, 1.7, SPONSORS[k++ % SPONSORS.length]);
+    wallSign(x, HALL.z1 - 0.52, PI, 9, 1.8, 1.7, list[k++ % list.length]);
+    if (theme.decor !== 'arena' || x < -44 || x > 44) wallSign(x, HALL.z0 + 0.52, 0, 9, 1.8, 1.7, list[k++ % list.length]);
   }
   for (let z = HALL.z0 + 18; z < HALL.z1 - 10; z += 12) {
-    wallSign(HALL.x0 + 0.52, z, PI / 2, 9, 1.8, 1.7, SPONSORS[k++ % SPONSORS.length]);
-    wallSign(HALL.x1 - 0.52, z, -PI / 2, 9, 1.8, 1.7, SPONSORS[k++ % SPONSORS.length]);
+    wallSign(HALL.x0 + 0.52, z, PI / 2, 9, 1.8, 1.7, list[k++ % list.length]);
+    wallSign(HALL.x1 - 0.52, z, -PI / 2, 9, 1.8, 1.7, list[k++ % list.length]);
   }
   // big logos
   const logo = (g, w, h) => {
@@ -646,11 +751,47 @@ function buildSigns(scene) {
     const gr = g.createLinearGradient(0, h * 0.15, 0, h * 0.85); gr.addColorStop(0, '#e6fbff'); gr.addColorStop(0.5, '#8be9ff'); gr.addColorStop(1, '#3d8bff');
     g.fillStyle = gr; g.font = `900 ${h * 0.62}px ${FONT}`;
     g.lineWidth = h * 0.05; g.strokeStyle = '#0b1830'; g.strokeText('EIS-RACER', 0, h * 0.47); g.fillText('EIS-RACER', 0, h * 0.47);
-    g.fillStyle = '#ffcc1f'; g.font = `900 ${h * 0.14}px ${FONT}`; g.fillText('KART ARENA · SCHOLLEN-CUP', 0, h * 0.86);
+    g.fillStyle = '#ffcc1f'; g.font = `900 ${h * 0.14}px ${FONT}`; g.fillText(def.name.toUpperCase() + ' · SCHOLLEN-CUP', 0, h * 0.86);
     g.restore();
   };
-  for (const [x, z, ry, w] of [[HALL.x0 + 0.55, 0, PI / 2, 34], [HALL.x1 - 0.55, 0, -PI / 2, 34], [0, HALL.z1 - 0.55, PI, 40]]) {
+  const cx = (HALL.x0 + HALL.x1) / 2, cz = (HALL.z0 + HALL.z1) / 2, lw = Math.min(34, (HALL.h - 5.5) * 3);
+  for (const [x, z, ry, w] of [[HALL.x0 + 0.55, cz, PI / 2, lw], [HALL.x1 - 0.55, cz, -PI / 2, lw], [cx, HALL.z1 - 0.55, PI, lw * 1.15]]) {
     const m = signMesh(w, w * 0.22, 256, logo, true);
-    m.material.transparent = true; m.position.set(x, 7.2, z); m.rotation.y = ry; scene.add(m);
+    m.material.transparent = true; m.position.set(x, Math.min(7.2, 3.6 + w * 0.11), z); m.rotation.y = ry; scene.add(m);
   }
+}
+
+// ---------- decoration placement helpers ----------
+let DECO_USED = [];
+function freeAt(x, z, r) {
+  if (!insideHall(x, z, r + 1.5) || !clearOfTrack(x, z, r)) return false;
+  for (const u of DECO_USED) if (Math.hypot(u.x - x, u.z - z) < u.r + r + 0.8) return false;
+  return true;
+}
+// random free spot (or null)
+function spot(r, tries = 80) {
+  for (let k = 0; k < tries; k++) {
+    const x = R(HALL.x0 + r + 2, HALL.x1 - r - 2), z = R(HALL.z0 + r + 2, HALL.z1 - r - 2);
+    if (freeAt(x, z, r)) { DECO_USED.push({ x, z, r }); return [x, z]; }
+  }
+  return null;
+}
+function scatter(n, r, fn) { for (let k = 0; k < n; k++) { const p = spot(r); if (p) fn(p[0], p[1], R(0, TAU), k); } }
+// free spot closest to a target point (default: hall center)
+function bigSpot(r, tx = null, tz = null) {
+  const cx = tx == null ? (HALL.x0 + HALL.x1) / 2 : tx, cz = tz == null ? (HALL.z0 + HALL.z1) / 2 : tz;
+  let best = null, bd = 1e18;
+  for (let x = HALL.x0 + r; x < HALL.x1 - r; x += 3) for (let z = HALL.z0 + r; z < HALL.z1 - r; z += 3) {
+    const d = (x - cx) ** 2 + (z - cz) ** 2;
+    if (d < bd && freeAt(x, z, r)) { bd = d; best = [x, z]; }
+  }
+  if (best) DECO_USED.push({ x: best[0], z: best[1], r });
+  return best;
+}
+// spots along the walls (for shelves, wall bars ...): returns [x, z, ry] facing into the hall
+function wallSpots(step, depth, r) {
+  const out = [];
+  for (let x = HALL.x0 + 8; x < HALL.x1 - 8; x += step) { out.push([x, HALL.z0 + depth, 0]); out.push([x, HALL.z1 - depth, PI]); }
+  for (let z = HALL.z0 + 8; z < HALL.z1 - 8; z += step) { out.push([HALL.x0 + depth, z, -PI / 2]); out.push([HALL.x1 - depth, z, PI / 2]); }
+  return out.filter(([x, z]) => { if (!clearOfTrack(x, z, r)) return false; for (const u of DECO_USED) if (Math.hypot(u.x - x, u.z - z) < u.r + r) return false; DECO_USED.push({ x, z, r }); return true; });
 }

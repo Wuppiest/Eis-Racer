@@ -12,7 +12,7 @@ const GRAV = 9.81 * 0.9;  // slope push
 const REST = 0.32;        // bounce off the barriers
 const ANG_DAMP = 1.1;     // spin damping
 const HOOK_RANGE = 80, HOOK_SPEED = 170, RETRACT_SPEED = 110;
-const LIM = HW - FLOE_R + 0.05; // lateral limit for the floe center
+let LIM = 5.2; // lateral limit for the floe center (set per map)
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
 const WHEEL_TIME = 0.28;  // seconds to extend / retract
 const ROLL_FRIC = 0.16;   // rolling resistance (m/s²) – less than ice
@@ -21,11 +21,13 @@ const WHEEL_SPIN_DAMP = 7; // wheels stop the floe from spinning
 
 // ---------- settings + records (localStorage may be unavailable) ----------
 const SETTINGS = { sens: 1, vol: 0.7, fov: 80, inv: false };
-const BEST = { total: null, lap: null };
+const BESTS = {};             // per map id: { total, lap }
+let BEST = { total: null, lap: null }; // current map's record
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } }
 function load(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 Object.assign(SETTINGS, load('eisracer_settings') || {});
-Object.assign(BEST, load('eisracer_best') || {});
+Object.assign(BESTS, load('eisracer_best2') || {});
+{ const old = load('eisracer_best'); if (old && old.total != null && !BESTS.arena) BESTS.arena = old; }
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('game');
@@ -48,7 +50,26 @@ const camera = new T.PerspectiveCamera(SETTINGS.fov, 1, 0.05, 420);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 
-buildWorld(scene);
+// ---------- maps ----------
+let mapIdx = clamp(+(load('eisracer_map') || 0), 0, MAPS.length - 1);
+let MAP = MAPS[mapIdx], ICE = 1;
+function loadMap(i) {
+  mapIdx = i; MAP = MAPS[i]; store('eisracer_map', i);
+  setupTrack(MAP);
+  buildWorld(MAP, scene);
+  LIM = HW - FLOE_R + 0.05;
+  const th = MAP.theme || {};
+  ICE = th.ice || 1;
+  scene.background.set(th.bg || '#c3d0de');
+  scene.fog.color.set(th.fog || '#c3d0de'); scene.fog.near = th.fogNear || 70; scene.fog.far = th.fogFar || 210;
+  hemi.color.set(th.hemiSky || '#ffffff'); hemi.groundColor.set(th.hemiGround || '#8d939e'); hemi.intensity = th.hemi || 1.75;
+  sun.color.set(th.sunCol || '#fff4e4'); sun.intensity = th.sun || 1.55;
+  BEST = BESTS[MAP.id] || (BESTS[MAP.id] = { total: null, lap: null });
+  camera.far = Math.max(420, (HALL.x1 - HALL.x0) * 2); camera.updateProjectionMatrix();
+  hook.state = 'idle'; hook.obj = null;
+  placeAtStart();
+  menuT = 0;
+}
 const floe = buildFloe(); scene.add(floe);
 const launcher = buildLauncher(); camera.add(launcher);
 const LAUNCH_POS = new V3(0.27, -0.25, -0.5);
@@ -118,7 +139,11 @@ function fireHook() {
   if (hook.state === 'flying' || hook.state === 'attached') return;
   const h = aimHit();
   muzzleWorld(hook.pos);
-  if (h) { hook.target.copy(h.point); hook.hit = true; }
+  hook.obj = null;
+  if (h) {
+    hook.target.copy(h.point); hook.hit = true;
+    if (h.object.userData.dyn) { hook.obj = h.object; hook.local = h.object.worldToLocal(h.point.clone()); }
+  }
   else { camera.getWorldDirection(_cd); hook.target.copy(camera.position).addScaledVector(_cd, HOOK_RANGE); hook.hit = false; }
   hook.state = 'flying'; hook.t = 0;
   hook.dur = Math.max(0.04, hook.pos.distanceTo(hook.target) / HOOK_SPEED);
@@ -133,6 +158,8 @@ function releaseHook(auto = false) {
   }
 }
 function updateHook(dt) {
+  // anchored on a moving element: the anchor point travels with it
+  if (hook.obj && (hook.state === 'flying' || hook.state === 'attached')) hook.target.copy(hook.local).applyMatrix4(hook.obj.matrixWorld);
   if (hook.state === 'flying') {
     hook.t += dt;
     const k = Math.min(1, hook.t / hook.dur);
@@ -161,7 +188,9 @@ function updateHook(dt) {
 
 // ---------- physics ----------
 const _q = { i: 0, f: 0, lat: 0, h: 0, tx: 1, tz: 0, nx: 0, nz: 1, slope: 0, s: 0, k: 0 };
+const _Z = { ax: 0, az: 0, fric: 1, fricAdd: 0, spin: null };
 function physStep(dt) {
+  if (!paused) updateElements(dt);
   updateHook(dt);
   pulling = false;
   // wheel arms move even during the countdown
@@ -194,11 +223,16 @@ function physStep(dt) {
   }
   trackQuery(P.x, P.z, P.idx, 40, _q);
   ax -= GRAV * _q.slope * _q.tx; az -= GRAV * _q.slope * _q.tz;
+  // floor zones: boost, belts, turntables, wind, slush, blank ice
+  const Z = _Z; Z.ax = 0; Z.az = 0; Z.fric = 1; Z.fricAdd = 0; Z.spin = null;
+  elementZones(_q, Z);
+  ax += Z.ax; az += Z.az;
+  if (Z.spin != null && P.wheel === 0) P.w += (Z.spin - P.w) * 2.5 * dt;
   P.vx += ax * dt; P.vz += az * dt;
   // ice friction + air drag (more braking after the finish)
   const v = Math.hypot(P.vx, P.vz);
   if (v > 1e-4) {
-    const dec = ((P.wheel === 1 ? ROLL_FRIC : FRIC) + DRAG * v * v + (racing ? 0 : 3.5)) * dt;
+    const dec = ((P.wheel === 1 ? ROLL_FRIC : FRIC * ICE) * Z.fric + Z.fricAdd + DRAG * v * v + (racing ? 0 : 3.5)) * dt;
     const nv = Math.max(0, v - dec);
     P.vx *= nv / v; P.vz *= nv / v;
   }
@@ -215,6 +249,8 @@ function physStep(dt) {
     const dx = hook.target.x - P.x, dz = hook.target.z - P.z, d = Math.hypot(dx, dz);
     if (d > hook.ropeLen) { P.x = hook.target.x - dx / d * hook.ropeLen; P.z = hook.target.z - dz / d * hook.ropeLen; }
   }
+  // moving obstacles, bumpers ...
+  elementCollide();
   // stay on the track: barriers on both sides
   trackQuery(P.x, P.z, P.idx, 40, _q);
   if (_q.i < NS * 0.25 && P.idx > NS * 0.75) P.wraps++;
@@ -289,6 +325,7 @@ function resetRace() {
   placeAtStart();
   look.yaw = WORLD.start.yaw; look.pitch = -0.04;
   hook.state = 'idle';
+  ELEM.t = 0;
   Object.assign(race, { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
   WORLD.lights.forEach((m) => m.color.set('#3a0d0d'));
   state = 'countdown';
@@ -322,7 +359,7 @@ function finishRace() {
   let rec = [];
   if (BEST.total == null || total < BEST.total) { BEST.total = total; rec.push('NEUE BESTZEIT!'); }
   if (BEST.lap == null || fastest < BEST.lap) { BEST.lap = fastest; rec.push('NEUE BESTE RUNDE!'); }
-  store('eisracer_best', BEST);
+  store('eisracer_best2', BESTS);
   if (rec.length) SFX.record();
   document.getElementById('resTotal').textContent = fmt(total);
   document.getElementById('resRec').textContent = rec.length ? '🏆 ' + rec.join(' · ') : 'Bestzeit: ' + fmt(BEST.total);
@@ -357,9 +394,65 @@ function drawSpeed(kmh, lap, time) {
 
 // ---------- menus ----------
 const $ = (id) => document.getElementById(id);
-function hideAll() { for (const id of ['menu', 'pause', 'result']) $(id).classList.add('hidden'); $('lockMsg').classList.add('hidden'); }
+function hideAll() { for (const id of ['menu', 'pause', 'result', 'maps', 'loading']) $(id).classList.add('hidden'); $('lockMsg').classList.add('hidden'); }
 function show(id) { hideAll(); $(id).classList.remove('hidden'); }
-function updateBest() { $('bestTotal').textContent = fmt(BEST.total); $('bestLap').textContent = fmt(BEST.lap); }
+function updateBest() {
+  $('bestTotal').textContent = fmt(BEST.total); $('bestLap').textContent = fmt(BEST.lap);
+  $('curMap').textContent = MAP.icon + ' ' + MAP.name;
+}
+// ---------- map selection ----------
+function miniMap(def, w, h) {
+  const c = document.createElement('canvas'); c.width = w * 2; c.height = h * 2;
+  const g = c.getContext('2d');
+  const pts = new T.CatmullRomCurve3(def.cp.map((p) => new V3(p[0], p[2] || 0, p[1])), true, 'centripetal').getSpacedPoints(220);
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+  const sc = Math.min((c.width - 36) / (x1 - x0), (c.height - 36) / (z1 - z0));
+  const ox = (c.width - (x1 - x0) * sc) / 2, oz = (c.height - (z1 - z0) * sc) / 2;
+  const X = (p) => ox + (p.x - x0) * sc, Y = (p) => oz + (p.z - z0) * sc;
+  g.lineJoin = g.lineCap = 'round';
+  const path = () => { g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(X(p), Y(p)) : g.moveTo(X(p), Y(p)))); g.closePath(); };
+  path(); g.lineWidth = 16; g.strokeStyle = 'rgba(0,0,0,.35)'; g.stroke();
+  path(); g.lineWidth = 10; g.strokeStyle = '#e8f6ff'; g.stroke();
+  // elevated parts in yellow
+  g.lineWidth = 10; g.strokeStyle = '#ffcc1f';
+  for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; if (a.y > 2 && b.y > 2) { g.beginPath(); g.moveTo(X(a), Y(a)); g.lineTo(X(b), Y(b)); g.stroke(); } }
+  g.fillStyle = '#4ff26a'; g.beginPath(); g.arc(X(pts[0]), Y(pts[0]), 9, 0, TAU); g.fill();
+  return c;
+}
+let mapsBuilt = false;
+function openMaps() {
+  SFX.init(); SFX.click();
+  if (!mapsBuilt) {
+    mapsBuilt = true;
+    const grid = $('mapGrid');
+    MAPS.forEach((m, i) => {
+      const b = document.createElement('button'); b.className = 'mapCard'; b.dataset.i = i;
+      const th = m.theme || {}, pal = th.pal || {};
+      b.style.setProperty('--c1', pal.wallUp || '#6f92b8'); b.style.setProperty('--c2', pal.floor1 || '#a7aeb6');
+      const mm = miniMap(m, 150, 86); mm.className = 'mm';
+      b.innerHTML = `<div class="num">${i + 1}</div><div class="ttl"><span>${m.icon}</span>${m.name}</div><div class="sub">${m.sub}</div><div class="bt"></div>`;
+      b.insertBefore(mm, b.children[1]);
+      b.onclick = () => chooseMap(i);
+      grid.appendChild(b);
+    });
+  }
+  document.querySelectorAll('.mapCard').forEach((b) => {
+    const m = MAPS[+b.dataset.i], bt = BESTS[m.id];
+    b.querySelector('.bt').innerHTML = bt && bt.total != null ? '🏆 ' + fmt(bt.total) : '<i>noch keine Zeit</i>';
+    b.classList.toggle('cur', +b.dataset.i === mapIdx);
+  });
+  paused = false;
+  if (state === 'race' || state === 'countdown') { state = 'menu'; setHud(false); }
+  show('maps');
+}
+function chooseMap(i) {
+  SFX.click(); lock();
+  if (i === mapIdx && WORLD.group) { startRace(); return; }
+  show('loading');
+  $('loadName').textContent = MAPS[i].icon + ' ' + MAPS[i].name;
+  requestAnimationFrame(() => requestAnimationFrame(() => { loadMap(i); updateBest(); startRace(); }));
+}
 updateBest();
 let touchMode = false;
 function setTouch(on) { touchMode = on; document.body.classList.toggle('touch', on); }
@@ -388,9 +481,15 @@ function openSettings(inGame) {
   $('bResume').textContent = inGame ? '▶ Weiter' : '← Zurück';
   document.querySelector('#pause h2').textContent = inGame ? 'Pause' : 'Einstellungen';
   document.querySelector('#pause .row2').classList.toggle('hidden', !inGame);
+  $('bMenu').classList.toggle('hidden', !inGame);
   show('pause');
 }
-$('bStart').onclick = startRace;
+$('bStart').onclick = openMaps;
+$('bQuick').onclick = startRace;
+$('bMaps').onclick = openMaps;
+$('bMapsBack').onclick = () => { SFX.click(); show('menu'); updateBest(); };
+$('bNext').onclick = () => chooseMap((mapIdx + 1) % MAPS.length);
+$('bPauseMaps').onclick = () => { if (document.pointerLockElement) document.exitPointerLock(); openMaps(); };
 $('bOpts').onclick = () => { SFX.init(); SFX.click(); openSettings(false); };
 $('bResume').onclick = () => { if (settingsFromMenu) { SFX.click(); show('menu'); } else resumeGame(); };
 $('bRestart').onclick = startRace;
@@ -578,6 +677,8 @@ function updateVisuals(dt, now) {
   }
   updateParts(dt);
 
+  // rotating decoration (ferris wheel, carousel, fans ...)
+  for (const sp of WORLD.spin) sp.obj.rotation[sp.axis] += sp.speed * dt;
   // flags
   const wave = (f, amp, t) => {
     const p = f.mesh.geometry.attributes.position, a = p.array, b = f.base;
@@ -614,7 +715,7 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
-placeAtStart();
+loadMap(mapIdx);
 let last = performance.now(), accT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
@@ -630,4 +731,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // small debug / test handle
-window.__eis = { P, hook, race, look, get state() { return state; }, fire: () => { holdKey = true; fireHook(); }, release: () => { holdKey = false; releaseHook(); }, start: startRace, aimHit, WORLD, TS, TLEN, renderer, step: (n) => { for (let i = 0; i < n; i++) physStep(STEP); }, skipCount: () => { race.cd = 0.001; race.cdStep = 1; } };
+window.__eis = { P, hook, race, look, get state() { return state; }, fire: () => { holdKey = true; fireHook(); }, release: () => { holdKey = false; releaseHook(); }, start: startRace, aimHit, WORLD, get TS() { return TS; }, get TLEN() { return TLEN; }, renderer, step: (n) => { for (let i = 0; i < n; i++) physStep(STEP); }, skipCount: () => { race.cd = 0.001; race.cdStep = 1; } };

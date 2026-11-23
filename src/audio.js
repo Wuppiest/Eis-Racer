@@ -113,6 +113,8 @@ const SFX = (() => {
     record() { [784, 988, 1175, 1568].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.3, v: 0.1, delay: 0.9 + i * 0.1 })); },
     wheelsDown() { tone({ type: 'square', f0: 180, f1: 90, dur: 0.07, v: 0.08, filter: 1400 }); noise({ dur: 0.06, v: 0.18, type: 'bandpass', f0: 2200, q: 2 }); tone({ type: 'triangle', f0: 1400, f1: 1300, dur: 0.12, v: 0.03, delay: 0.03 }); },
     wheelsUp() { tone({ type: 'sawtooth', f0: 300, f1: 520, dur: 0.18, v: 0.03, filter: 1200 }); },
+    boost() { noise({ dur: 0.5, v: 0.22, type: 'bandpass', f0: 600, f1: 3200, q: 1.5 }); tone({ type: 'sawtooth', f0: 220, f1: 660, dur: 0.35, v: 0.05, filter: 2400 }); },
+    bumper() { tone({ type: 'square', f0: 520, f1: 1040, dur: 0.12, v: 0.1, filter: 3000 }); tone({ type: 'triangle', f0: 1560, dur: 0.18, v: 0.06, delay: 0.04 }); noise({ dur: 0.08, v: 0.2, type: 'bandpass', f0: 1800, q: 2 }); },
     click() { tone({ type: 'triangle', f0: 900, f1: 1200, dur: 0.05, v: 0.06 }); },
     wrong() { tone({ type: 'square', f0: 220, dur: 0.18, v: 0.07, filter: 1200 }); tone({ type: 'square', f0: 180, dur: 0.25, v: 0.07, filter: 1200, delay: 0.2 }); },
   };
