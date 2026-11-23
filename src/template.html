@@ -42,9 +42,12 @@
   .touchOnly { display: none !important; }
   body.touch .touchOnly { display: inline-block !important; }
   body.touch .kbOnly { display: none !important; }
-  body.touch #tHook { display: flex !important; }
-  #tHook { pointer-events: auto; position: absolute; right: max(26px, env(safe-area-inset-right)); bottom: max(30px, env(safe-area-inset-bottom)); width: 112px; height: 112px; border-radius: 50%; border: 3px solid rgba(255,255,255,.55); background: rgba(15,18,32,.38); color: #fff; font-size: 15px; font-weight: 900; letter-spacing: 1px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; touch-action: none; }
-  #tHook b { font-size: 36px; line-height: 1; }
+  body.touch #tHook, body.touch #tWheels { display: flex !important; }
+  #tHook, #tWheels { pointer-events: auto; position: absolute; left: max(26px, env(safe-area-inset-left)); bottom: max(30px, env(safe-area-inset-bottom)); width: 112px; height: 112px; border-radius: 50%; border: 3px solid rgba(255,255,255,.55); background: rgba(15,18,32,.38); color: #fff; font-size: 15px; font-weight: 900; letter-spacing: 1px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; touch-action: none; }
+  #tWheels { left: auto; right: max(26px, env(safe-area-inset-right)); width: 96px; height: 96px; font-size: 13px; }
+  #tHook b, #tWheels b { font-size: 36px; line-height: 1; }
+  #tWheels b { font-size: 30px; }
+  #tWheels.on { background: rgba(79,242,255,.35); border-color: #4ff2ff; transform: scale(.94); }
   #tHook.on { background: rgba(255,176,32,.45); border-color: #ffb020; transform: scale(.94); }
   #tHook.ok { border-color: #4ff2ff; box-shadow: 0 0 16px rgba(79,242,255,.5); }
   #tPause { pointer-events: auto; position: absolute; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); width: 46px; height: 46px; border-radius: 12px; border: 2px solid rgba(255,255,255,.35); background: rgba(15,18,32,.4); color: #fff; font-size: 16px; font-weight: 900; }
@@ -108,9 +111,10 @@
   <div id="cross"><div class="ring"></div><div class="dot"></div><div class="t a"></div><div class="t b"></div><div class="t c"></div><div class="t d"></div></div>
   <div id="crossDist"></div>
   <div id="toast"></div>
-  <div id="hint"><span class="kbOnly"><kbd>E</kbd> / <kbd>Linksklick</kbd> halten = Greifhaken &nbsp;·&nbsp; loslassen = lösen</span><span class="touchOnly">Wischen = umschauen &nbsp;·&nbsp; <kbd>HAKEN</kbd> halten = ranziehen</span></div>
+  <div id="hint"><span class="kbOnly"><kbd>E</kbd> / <kbd>Linksklick</kbd> halten = Greifhaken &nbsp;·&nbsp; <kbd>Leertaste</kbd> halten = Räder</span><span class="touchOnly">Wischen = umschauen &nbsp;·&nbsp; <kbd>HAKEN</kbd> halten = ranziehen &nbsp;·&nbsp; <kbd>RÄDER</kbd> halten = Räder</span></div>
   <div id="speedo"><div class="v"><span id="spd">0</span><small>km/h</small></div><div class="l"><span id="lapTxt">RUNDE 1/3</span> &nbsp;·&nbsp; <span id="timeTxt">0:00.00</span></div></div>
   <button id="tHook" class="touchOnly"><b>🪝</b>HAKEN</button>
+  <button id="tWheels" class="touchOnly"><b>🛞</b>RÄDER</button>
   <button id="tPause" class="touchOnly">❚❚</button>
 </div>
 <div id="count" class="hidden"></div>
@@ -125,8 +129,9 @@
     <div class="keys">
       <kbd>Maus</kbd> umschauen / zielen<br>
       <kbd>E</kbd> oder <kbd>Linksklick</kbd> halten: Haken schießen &amp; ranziehen, loslassen: lösen<br>
+      <kbd>Leertaste</kbd> halten: Räder ausfahren, rollt nur geradeaus in Schollen-Richtung<br>
       <kbd>R</kbd> Neustart &nbsp; <kbd>Esc</kbd> Pause<br>
-      <b>iPad:</b> wischen = umschauen, HAKEN-Knopf halten = ranziehen
+      <b>iPad:</b> wischen = umschauen, HAKEN links, RÄDER rechts (halten)
     </div>
   </div>
 </div>

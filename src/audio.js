@@ -65,6 +65,8 @@ const SFX = (() => {
     L.wind = loopNoise('lowpass', 500, 0.6);       // air rushing past
     L.hall = loopNoise('lowpass', 260, 0.4);       // hall ambience
     L.hall.g.gain.value = 0.05;
+    L.roll = loopNoise('lowpass', 240, 1.2);       // little wheels rumbling
+    L.squeal = loopNoise('bandpass', 2600, 6);     // tyres scrubbing sideways
     // winch motor while reeling in
     const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 70;
     const lfo = ctx.createOscillator(); lfo.frequency.value = 22;
@@ -74,13 +76,17 @@ const SFX = (() => {
     o.connect(f); f.connect(g); g.connect(bus); o.start(); lfo.start();
     L.winch = { o, g, lfo };
   }
-  function update(speed, pulling, active) {
+  function update(speed, pulling, active, wheels = false, skid = 0) {
     if (!ctx) return;
     const t = now(), k = clamp(speed / 30, 0, 1.3);
     const on = active ? 1 : 0;
-    L.scrape.g.gain.setTargetAtTime(on * (0.02 + k * 0.16), t, 0.08);
+    const ice = wheels ? 0.15 : 1;
+    L.scrape.g.gain.setTargetAtTime(on * ice * (0.02 + k * 0.16), t, 0.08);
+    L.roll.g.gain.setTargetAtTime(on && wheels ? 0.05 + k * 0.32 : 0, t, 0.06);
+    L.roll.f.frequency.setTargetAtTime(160 + k * 380, t, 0.1);
+    L.squeal.g.gain.setTargetAtTime(on && wheels ? clamp(skid / 8, 0, 1) * 0.12 : 0, t, 0.05);
     L.scrape.f.frequency.setTargetAtTime(900 + k * 1400, t, 0.1);
-    L.hiss.g.gain.setTargetAtTime(on * k * 0.05, t, 0.1);
+    L.hiss.g.gain.setTargetAtTime(on * ice * k * 0.05, t, 0.1);
     L.wind.g.gain.setTargetAtTime(on * k * k * 0.22, t, 0.15);
     L.wind.f.frequency.setTargetAtTime(300 + k * 900, t, 0.2);
     L.winch.g.gain.setTargetAtTime(on && pulling ? 0.07 : 0, t, 0.04);
@@ -105,6 +111,8 @@ const SFX = (() => {
     lap() { [660, 880, 1100].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.22, v: 0.12, delay: i * 0.09 })); },
     finish() { [523, 659, 784, 1046, 784, 1046].forEach((f, i) => tone({ type: i < 4 ? 'triangle' : 'square', f0: f, dur: i === 5 ? 0.8 : 0.2, v: 0.12, delay: i * 0.12, filter: 3500 })); noise({ dur: 2.2, v: 0.1, type: 'bandpass', f0: 1500, q: 0.4, a: 0.3, delay: 0.3 }); },
     record() { [784, 988, 1175, 1568].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.3, v: 0.1, delay: 0.9 + i * 0.1 })); },
+    wheelsDown() { tone({ type: 'square', f0: 180, f1: 90, dur: 0.07, v: 0.08, filter: 1400 }); noise({ dur: 0.06, v: 0.18, type: 'bandpass', f0: 2200, q: 2 }); tone({ type: 'triangle', f0: 1400, f1: 1300, dur: 0.12, v: 0.03, delay: 0.03 }); },
+    wheelsUp() { tone({ type: 'sawtooth', f0: 300, f1: 520, dur: 0.18, v: 0.03, filter: 1200 }); },
     click() { tone({ type: 'triangle', f0: 900, f1: 1200, dur: 0.05, v: 0.06 }); },
     wrong() { tone({ type: 'square', f0: 220, dur: 0.18, v: 0.07, filter: 1200 }); tone({ type: 'square', f0: 180, dur: 0.25, v: 0.07, filter: 1200, delay: 0.2 }); },
   };

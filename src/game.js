@@ -13,6 +13,11 @@ const REST = 0.32;        // bounce off the barriers
 const ANG_DAMP = 1.1;     // spin damping
 const HOOK_RANGE = 80, HOOK_SPEED = 170, RETRACT_SPEED = 110;
 const LIM = HW - FLOE_R + 0.05; // lateral limit for the floe center
+// retractable wheels (hold Space): roll only along the floe's nose direction, no steering
+const WHEEL_TIME = 0.28;  // seconds to extend / retract
+const ROLL_FRIC = 0.16;   // rolling resistance (m/s²) – less than ice
+const SIDE_GRIP = 9;      // how fast sideways sliding is killed (1/s)
+const WHEEL_SPIN_DAMP = 7; // wheels stop the floe from spinning
 
 // ---------- settings + records (localStorage may be unavailable) ----------
 const SETTINGS = { sens: 1, vol: 0.7, fov: 80, inv: false };
@@ -86,11 +91,12 @@ function updateParts(dt) {
 // ---------- state ----------
 let state = 'menu';          // menu | countdown | race | finished
 let paused = false;
-const P = { x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
+const P = { wheel: 0, wheelSpin: 0, x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
 const look = { yaw: 0, pitch: 0 };
 const hook = { state: 'idle', pos: new V3(), target: new V3(), t: 0, dur: 0, hit: false, ropeLen: 0 };
 const race = { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 0, cdStep: 4, wrongT: 0, finishT: 0 };
-let holdMouse = false, holdKey = false, holdTouch = false;
+let holdMouse = false, holdKey = false, holdTouch = false, holdSpace = false, holdWheelTouch = false;
+const wheelsWanted = () => holdSpace || holdWheelTouch;
 const holding = () => holdMouse || holdKey || holdTouch;
 let shake = 0, recoil = 0, menuT = 0, pulling = false, lastTick = 0;
 
@@ -156,6 +162,12 @@ const _q = { i: 0, f: 0, lat: 0, h: 0, tx: 1, tz: 0, nx: 0, nz: 1, slope: 0, s: 
 function physStep(dt) {
   updateHook(dt);
   pulling = false;
+  // wheel arms move even during the countdown
+  const wTarget = wheelsWanted() && state !== 'menu' ? 1 : 0;
+  const wPrev = P.wheel;
+  P.wheel = clamp(P.wheel + (wTarget ? 1 : -1) * dt / WHEEL_TIME, 0, 1);
+  if (wPrev < 1 && P.wheel === 1) SFX.wheelsDown();
+  if (wTarget !== P.wTgt) { P.wTgt = wTarget; if (state !== 'menu') SFX.wheelsUp(); }
   if (state !== 'race' && state !== 'finished') return;
   const racing = state === 'race';
   let ax = 0, az = 0;
@@ -184,7 +196,7 @@ function physStep(dt) {
   // ice friction + air drag (more braking after the finish)
   const v = Math.hypot(P.vx, P.vz);
   if (v > 1e-4) {
-    const dec = (FRIC + DRAG * v * v + (racing ? 0 : 3.5)) * dt;
+    const dec = ((P.wheel === 1 ? ROLL_FRIC : FRIC) + DRAG * v * v + (racing ? 0 : 3.5)) * dt;
     const nv = Math.max(0, v - dec);
     P.vx *= nv / v; P.vz *= nv / v;
   }
@@ -222,6 +234,16 @@ function physStep(dt) {
       if (vn > 1.5 && P.wall <= 0) impact(vn, P.x + nx * FLOE_R, P.z + nz * FLOE_R, nx, nz);
     }
   }
+  // wheels on the floor: only the nose direction keeps its speed
+  if (P.wheel === 1) {
+    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+    const vf = P.vx * fx + P.vz * fz, vl = P.vx * -fz + P.vz * fx;
+    const vl2 = vl * Math.exp(-SIDE_GRIP * dt);
+    P.vx = fx * vf - fz * vl2; P.vz = fz * vf + fx * vl2;
+    P.w *= Math.exp(-WHEEL_SPIN_DAMP * dt);
+    P.wheelSpin += vf / WHEEL_R * dt;
+    P.skid = Math.abs(vl);
+  } else P.skid = 0;
   P.w *= Math.exp(-ANG_DAMP * dt);
   P.yaw += P.w * dt;
   P.y = _q.h;
@@ -258,7 +280,7 @@ function impact(vn, x, z, nx, nz) {
 // ---------- race flow ----------
 function placeAtStart() {
   const s = WORLD.start;
-  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0 });
+  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0, wheel: 0, wheelSpin: 0, skid: 0 });
 }
 function resetRace() {
   placeAtStart();
@@ -346,7 +368,7 @@ function lock() {
 function startRace() { SFX.init(); SFX.click(); paused = false; resetRace(); lock(); }
 function pauseGame() {
   if (paused || (state !== 'race' && state !== 'countdown')) return;
-  paused = true; holdMouse = holdKey = holdTouch = false; $('tHook').classList.remove('on');
+  paused = true; holdMouse = holdKey = holdTouch = holdSpace = holdWheelTouch = false; $('tHook').classList.remove('on'); $('tWheels').classList.remove('on');
   SFX.mute();
   openSettings(true);
 }
@@ -401,6 +423,7 @@ document.addEventListener('mouseup', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (touchMode) setTouch(false);
+  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (!e.repeat && playing()) holdSpace = true; return; }
   if (e.code === 'KeyE' && !e.repeat) { if (playing()) { holdKey = true; fireHook(); } }
   else if (e.code === 'KeyR' && !e.repeat && (state === 'race' || state === 'countdown' || state === 'finished') && !paused) startRace();
   else if (e.code === 'KeyP' && !e.repeat) { if (paused && !settingsFromMenu) resumeGame(); else pauseGame(); }
@@ -408,8 +431,9 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('keyup', (e) => {
   if (e.code === 'KeyE' && holdKey) { holdKey = false; if (!holding()) releaseHook(); }
+  if (e.code === 'Space') { e.preventDefault(); holdSpace = false; }
 });
-window.addEventListener('blur', () => { holdMouse = holdKey = holdTouch = false; if (hook.state === 'attached') releaseHook(); });
+window.addEventListener('blur', () => { holdMouse = holdKey = holdTouch = holdSpace = holdWheelTouch = false; if (hook.state === 'attached') releaseHook(); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ---------- touch (iPad): swipe anywhere to look, hold the HAKEN button to grapple ----------
@@ -466,6 +490,11 @@ const endHook = (e) => {
 };
 $('tHook').addEventListener('touchend', endHook, { passive: false });
 $('tHook').addEventListener('touchcancel', endHook, { passive: false });
+const wheelsBtn = $('tWheels');
+wheelsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!playing()) return; holdWheelTouch = true; wheelsBtn.classList.add('on'); }, { passive: false });
+const endWheels = (e) => { e.preventDefault(); holdWheelTouch = false; wheelsBtn.classList.remove('on'); };
+wheelsBtn.addEventListener('touchend', endWheels, { passive: false });
+wheelsBtn.addEventListener('touchcancel', endWheels, { passive: false });
 $('tPause').addEventListener('touchstart', (e) => { e.preventDefault(); pauseGame(); }, { passive: false });
 $('tPause').addEventListener('click', () => pauseGame());
 
@@ -482,14 +511,17 @@ function updateVisuals(dt, now) {
   const aF = P.ax * fx + P.az * fz, aS = P.ax * -fz + P.az * fx;
   P.tiltX = damp(P.tiltX, Math.atan(slopeF) - aF * 0.004, 8, dt);
   P.tiltZ = damp(P.tiltZ, -Math.atan(slopeS) + aS * 0.006, 8, dt);
-  floe.position.set(P.x, P.y + 0.03, P.z);
+  const lift = WHEEL_LIFT * clamp((P.wheel - 0.55) / 0.45, 0, 1) ** 0.7;
+  P.lift = damp(P.lift || 0, lift, 18, dt);
+  floe.position.set(P.x, P.y + 0.03 + P.lift, P.z);
+  setWheels(floe.userData.wheels, P.wheel, P.wheelSpin);
   floe.rotation.set(P.tiltX, P.yaw, P.tiltZ, 'YXZ');
   // camera
   const inGame = state !== 'menu';
   shake = Math.max(0, shake - dt * 2.2);
   if (inGame) {
     const bob = Math.sin(now * 0.011) * Math.min(speed, 30) * 0.0012;
-    camera.position.set(P.x, P.y + FLOE_TOP + 1.02 + bob, P.z);
+    camera.position.set(P.x, P.y + FLOE_TOP + 1.02 + bob + (P.lift || 0), P.z);
     if (shake > 0) camera.position.add(_lv.set((Math.random() - 0.5) * shake * 0.12, (Math.random() - 0.5) * shake * 0.12, (Math.random() - 0.5) * shake * 0.12));
     // slight roll when the floe is pushed sideways
     const sx = -Math.cos(look.yaw), sz = Math.sin(look.yaw);
@@ -534,7 +566,7 @@ function updateVisuals(dt, now) {
   } else rope.visible = false;
 
   // particles: frost dust while sliding fast
-  if (state !== 'menu' && speed > 9) {
+  if (state !== 'menu' && speed > 9 && P.wheel < 1) {
     const n = speed > 22 ? 2 : 1;
     for (let k = 0; k < n; k++) {
       const a = Math.random() * TAU;
@@ -568,7 +600,7 @@ function updateVisuals(dt, now) {
     // reel clicks while pulling
     if (pulling) { tickT -= dt * (0.6 + speed * 0.06); if (tickT <= 0) { tickT = 0.12; SFX.reel(); } }
   }
-  SFX.update(speed, pulling && !paused, inGame && !paused);
+  SFX.update(speed, pulling && !paused, inGame && !paused, P.wheel === 1, P.skid || 0);
 }
 
 // ---------- loop ----------

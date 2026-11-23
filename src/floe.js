@@ -29,6 +29,7 @@ function buildFloe() {
     const am = new V3(a.x * 0.98, 0.2, a.z * 0.98), bm = new V3(b.x * 0.98, 0.2, b.z * 0.98);
     acc.quad(ao, am, bm, bo, side, 0.05, out);
     acc.quad(am, ab, bb, bm, side2, 0.05, out);
+    acc.tri(new V3(0, 0.02, 0), ab, bb, C('#5aa9d6'), 0.04, DOWN);
   }
   // a few snow lumps and frost cracks
   const o = new Obj();
@@ -53,7 +54,60 @@ function buildFloe() {
   const mesh = acc.build(VCMAT);
   mesh.castShadow = true; mesh.receiveShadow = true;
   grp.add(mesh);
+  grp.userData.wheels = buildWheels(grp);
   return grp;
+}
+
+// ---------- retractable wheels: 4 swing arms hinged inside the ice ----------
+// arm angle: 0 = folded backwards inside the floe, 1 = straight down (floe lifted by WHEEL_LIFT)
+const WHEEL_R = 0.17, ARM_L = 0.34, HINGE_Y = 0.14;
+const WHEEL_LIFT = ARM_L + WHEEL_R - HINGE_Y; // ≈ 0.29 m
+function buildWheels(grp) {
+  const units = [];
+  const strut = C('#b9c3cf'), dark = C('#2a2f3a'), tire = C('#1d2029'), hub = C('#ffcc1f'), plate = C('#ff8a3d');
+  for (const [x, z] of [[-0.68, -0.8], [0.68, -0.8], [-0.68, 0.8], [0.68, 0.8]]) {
+    const hinge = new T.Group();
+    hinge.position.set(x, HINGE_Y, z);
+    // housing plate under the ice (visible when the floe is lifted)
+    const ho = new Obj();
+    ho.box(0.24, 0.06, 0.2, 0, -0.06, 0, plate);
+    ho.cyl(0.05, 0.22, 0, 0, 0, dark, { rz: PI / 2, seg: 8 });   // hinge pin
+    const hm = new MeshAcc().addObj(ho).build(VCMAT); hm.castShadow = true;
+    hinge.add(hm);
+    // swing arm (points down -y when extended)
+    const arm = new T.Group();
+    const ao = new Obj();
+    ao.box(0.05, ARM_L, 0.06, -0.075, -ARM_L / 2, 0, strut);
+    ao.box(0.05, ARM_L, 0.06, 0.075, -ARM_L / 2, 0, strut);
+    ao.box(0.2, 0.05, 0.07, 0, -0.04, 0, strut);
+    ao.cyl(0.025, 0.24, 0, -ARM_L, 0, dark, { rz: PI / 2, seg: 6 }); // axle
+    const am = new MeshAcc().addObj(ao).build(VCMAT); am.castShadow = true;
+    arm.add(am);
+    // wheel (spins around its axle = local x)
+    const wheel = new T.Group();
+    wheel.position.set(0, -ARM_L, 0);
+    const wo = new Obj();
+    wo.cyl(WHEEL_R, 0.11, 0, 0, 0, tire, { rz: PI / 2, seg: 12 });
+    wo.cyl(WHEEL_R * 0.6, 0.125, 0, 0, 0, hub, { rz: PI / 2, seg: 8 });
+    wo.box(0.11, WHEEL_R * 1.5, 0.03, 0, 0, 0, C('#e0a800'));        // spoke: makes the spin visible
+    const wm = new MeshAcc().addObj(wo).build(VCMAT); wm.castShadow = true;
+    wheel.add(wm);
+    arm.add(wheel);
+    hinge.add(arm);
+    grp.add(hinge);
+    units.push({ arm, wheel, hinge });
+  }
+  return units;
+}
+// k: 0 = retracted, 1 = extended (eased, with a small overshoot "snap" at the end)
+function setWheels(units, k, spin) {
+  const e = k < 1 ? 1 - Math.pow(1 - k, 3) : 1;
+  const ang = -PI / 2 * (1 - e) + Math.sin(k * PI) * 0.08 * (k > 0.6 ? 1 : 0);
+  for (const u of units) {
+    u.arm.rotation.x = ang;          // folded: arm lies backwards (+z) inside the ice
+    u.wheel.rotation.x = spin;
+    u.hinge.visible = k > 0.02;
+  }
 }
 
 // grapple launcher in the right hand (child of the camera)
