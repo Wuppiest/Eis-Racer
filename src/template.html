@@ -6,7 +6,7 @@
 <title>Eis-Racer</title>
 <style>
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
   canvas#game { display: block; width: 100vw; height: 100vh; }
   .hidden { display: none !important; }
   button { font-family: inherit; }
@@ -32,8 +32,22 @@
   #crossDist { position: absolute; left: 50%; top: calc(50% + 26px); transform: translateX(-50%); font-size: 13px; font-weight: 800; color: #4ff2ff; text-shadow: 0 1px 3px rgba(0,0,0,.8); font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .15s; }
   #crossDist.show { opacity: 1; }
 
-  #tacho { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: 280px; height: 182px; }
-  #tacho canvas { width: 280px; height: 182px; display: block; }
+  /* speed readout: small and clean */
+  #speedo { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); text-align: center; text-shadow: 0 1px 2px rgba(0,0,0,.55), 0 0 10px rgba(0,0,0,.25); line-height: 1; }
+  #speedo .v { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+  #speedo .v small { font-size: 13px; font-weight: 700; opacity: .7; margin-left: 4px; letter-spacing: .5px; }
+  #speedo .l { margin-top: 5px; font-size: 13px; font-weight: 700; opacity: .75; font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+
+  /* touch controls (iPad) */
+  .touchOnly { display: none !important; }
+  body.touch .touchOnly { display: inline-block !important; }
+  body.touch .kbOnly { display: none !important; }
+  body.touch #tHook { display: flex !important; }
+  #tHook { pointer-events: auto; position: absolute; right: max(26px, env(safe-area-inset-right)); bottom: max(30px, env(safe-area-inset-bottom)); width: 112px; height: 112px; border-radius: 50%; border: 3px solid rgba(255,255,255,.55); background: rgba(15,18,32,.38); color: #fff; font-size: 15px; font-weight: 900; letter-spacing: 1px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; touch-action: none; }
+  #tHook b { font-size: 36px; line-height: 1; }
+  #tHook.on { background: rgba(255,176,32,.45); border-color: #ffb020; transform: scale(.94); }
+  #tHook.ok { border-color: #4ff2ff; box-shadow: 0 0 16px rgba(79,242,255,.5); }
+  #tPause { pointer-events: auto; position: absolute; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); width: 46px; height: 46px; border-radius: 12px; border: 2px solid rgba(255,255,255,.35); background: rgba(15,18,32,.4); color: #fff; font-size: 16px; font-weight: 900; }
 
   #toast { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); font-size: 26px; font-weight: 900; padding: 10px 24px; background: rgba(15,18,32,.66); border: 2px solid rgba(255,255,255,.18); border-radius: 14px; opacity: 0; transition: opacity .35s; white-space: nowrap; font-variant-numeric: tabular-nums; }
   #toast.show { opacity: 1; transition: none; }
@@ -44,7 +58,7 @@
   #count.go { color: #4ff26a; text-shadow: 0 6px 0 #1a7a2a, 0 0 40px rgba(0,0,0,.5); }
   #count.anim { animation: cnt .9s ease-out forwards; }
   @keyframes cnt { 0% { transform: translate(-50%,-50%) scale(2.2); opacity: 0; } 20% { transform: translate(-50%,-50%) scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: translate(-50%,-50%) scale(.8); opacity: 0; } }
-  #hint { position: absolute; bottom: 210px; left: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 800; padding: 8px 18px; background: rgba(15,18,32,.62); border-radius: 12px; white-space: nowrap; transition: opacity .6s; }
+  #hint { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 800; padding: 8px 18px; background: rgba(15,18,32,.62); border-radius: 12px; white-space: nowrap; transition: opacity .6s; }
   kbd { display: inline-block; min-width: 26px; padding: 1px 7px; border-radius: 6px; background: #ffd21f; color: #1d2230; border-bottom: 3px solid #a5860f; font-family: inherit; font-weight: 900; text-align: center; font-size: .9em; }
 
   /* ---------- menus ---------- */
@@ -82,7 +96,7 @@
   #resLaps li.fast { background: rgba(79,242,106,.16); color: #8dffa3; }
   #resLaps li span { opacity: .75; }
   #lockMsg { position: fixed; left: 50%; bottom: 40%; transform: translateX(-50%); z-index: 12; padding: 14px 22px; border-radius: 14px; background: rgba(15,18,32,.8); font-weight: 800; font-size: 18px; cursor: pointer; }
-  @media (max-width: 760px), (max-height: 560px) { h1.logo { font-size: 56px; } #tacho { transform: translateX(-50%) scale(.8); transform-origin: 50% 100%; } }
+  @media (max-width: 760px), (max-height: 560px) { h1.logo { font-size: 56px; } .tag { margin: 10px 0 14px; } .keys { display: none; } }
 </style>
 </head>
 <body>
@@ -94,8 +108,10 @@
   <div id="cross"><div class="ring"></div><div class="dot"></div><div class="t a"></div><div class="t b"></div><div class="t c"></div><div class="t d"></div></div>
   <div id="crossDist"></div>
   <div id="toast"></div>
-  <div id="hint"><kbd>E</kbd> / <kbd>Linksklick</kbd> halten = Greifhaken &nbsp;·&nbsp; loslassen = lösen</div>
-  <div id="tacho"><canvas id="tachoCv" width="560" height="364"></canvas></div>
+  <div id="hint"><span class="kbOnly"><kbd>E</kbd> / <kbd>Linksklick</kbd> halten = Greifhaken &nbsp;·&nbsp; loslassen = lösen</span><span class="touchOnly">Wischen = umschauen &nbsp;·&nbsp; <kbd>HAKEN</kbd> halten = ranziehen</span></div>
+  <div id="speedo"><div class="v"><span id="spd">0</span><small>km/h</small></div><div class="l"><span id="lapTxt">RUNDE 1/3</span> &nbsp;·&nbsp; <span id="timeTxt">0:00.00</span></div></div>
+  <button id="tHook" class="touchOnly"><b>🪝</b>HAKEN</button>
+  <button id="tPause" class="touchOnly">❚❚</button>
 </div>
 <div id="count" class="hidden"></div>
 
@@ -109,7 +125,8 @@
     <div class="keys">
       <kbd>Maus</kbd> umschauen / zielen<br>
       <kbd>E</kbd> oder <kbd>Linksklick</kbd> halten: Haken schießen &amp; ranziehen, loslassen: lösen<br>
-      <kbd>R</kbd> Neustart &nbsp; <kbd>Esc</kbd> Pause
+      <kbd>R</kbd> Neustart &nbsp; <kbd>Esc</kbd> Pause<br>
+      <b>iPad:</b> wischen = umschauen, HAKEN-Knopf halten = ranziehen
     </div>
   </div>
 </div>

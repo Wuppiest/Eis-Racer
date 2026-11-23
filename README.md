@@ -16,11 +16,21 @@ Wer seitlich zieht, bringt die Scholle zum Drehen. Wer sich um einen Pfosten pen
 | Esc / P | Pause (mit Einstellungen) |
 | Leertaste | *später: kleine Räder ausfahren* |
 
+### iPad / Touch
+Wird beim ersten Antippen automatisch erkannt (am besten im Querformat). Sobald eine Tastatur benutzt wird, verschwinden die Knöpfe wieder.
+
+| Touch | Aktion |
+|---|---|
+| Wischen (überall) | Umschauen / zielen |
+| HAKEN-Knopf **halten** | Greifhaken schießen und ranziehen (beim Halten weiterwischen zum Nachzielen) |
+| loslassen | Haken lösen |
+| ❚❚ oben links | Pause |
+
 Das Fadenkreuz leuchtet **türkis**, wenn der Haken etwas treffen würde (Reichweite 80 m), und **orange**, solange du eingehakt bist.
 
 ## Regeln
 - 3 Runden auf Zeit. Die Uhr startet bei „LOS!“.
-- Unten in der Mitte zeigt der Tacho die Geschwindigkeit, die Runde und die Zeit.
+- Unten in der Mitte stehen klein die Geschwindigkeit, die Runde und die Zeit.
 - Bestzeit und beste Runde werden im Browser gespeichert.
 
 ## Strecke

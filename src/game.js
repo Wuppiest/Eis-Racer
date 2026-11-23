@@ -90,8 +90,8 @@ const P = { x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tilt
 const look = { yaw: 0, pitch: 0 };
 const hook = { state: 'idle', pos: new V3(), target: new V3(), t: 0, dur: 0, hit: false, ropeLen: 0 };
 const race = { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 0, cdStep: 4, wrongT: 0, finishT: 0 };
-let holdMouse = false, holdKey = false;
-const holding = () => holdMouse || holdKey;
+let holdMouse = false, holdKey = false, holdTouch = false;
+const holding = () => holdMouse || holdKey || holdTouch;
 let shake = 0, recoil = 0, menuT = 0, pulling = false, lastTick = 0;
 
 // ---------- grapple ----------
@@ -313,7 +313,6 @@ function finishRace() {
 const fmt = (t) => { if (t == null) return '–:––.––'; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(2); };
 
 // ---------- HUD ----------
-const tachoCv = document.getElementById('tachoCv'), tg = tachoCv.getContext('2d');
 const cross = document.getElementById('cross'), crossDist = document.getElementById('crossDist');
 let toastTimer = 0;
 function toast(html, ms = 1500, warn = false) {
@@ -322,51 +321,13 @@ function toast(html, ms = 1500, warn = false) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 function setHud(on) { document.getElementById('hud').classList.toggle('hidden', !on); }
-const MAXK = 150;
-function drawTacho(kmh, lap, time) {
-  const g = tg, W = 560, cx = 280, cy = 205, R0 = 182;
-  g.clearRect(0, 0, W, 364);
-  // dome
-  g.save();
-  g.beginPath(); g.arc(cx, cy, 200, 0, TAU);
-  const bg = g.createRadialGradient(cx, cy - 40, 20, cx, cy, 200);
-  bg.addColorStop(0, 'rgba(26,34,60,.86)'); bg.addColorStop(1, 'rgba(10,14,28,.86)');
-  g.fillStyle = bg; g.fill();
-  g.lineWidth = 5; g.strokeStyle = 'rgba(255,255,255,.22)'; g.stroke();
-  g.restore();
-  const a0 = PI * 5 / 6, sweep = PI * 4 / 3;
-  const ang = (v) => a0 + sweep * clamp(v / MAXK, 0, 1);
-  // track arc
-  g.lineCap = 'round';
-  g.beginPath(); g.arc(cx, cy, R0 - 8, a0, a0 + sweep); g.lineWidth = 16; g.strokeStyle = 'rgba(255,255,255,.1)'; g.stroke();
-  // value arc
-  const gr = g.createLinearGradient(cx - R0, 0, cx + R0, 0);
-  gr.addColorStop(0, '#4ff2ff'); gr.addColorStop(0.55, '#c9f6ff'); gr.addColorStop(0.8, '#ffe066'); gr.addColorStop(1, '#ff5a3a');
-  if (kmh > 0.5) { g.beginPath(); g.arc(cx, cy, R0 - 8, a0, ang(kmh)); g.lineWidth = 16; g.strokeStyle = gr; g.shadowColor = '#4ff2ff'; g.shadowBlur = 14; g.stroke(); g.shadowBlur = 0; }
-  // ticks + numbers
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  for (let v = 0; v <= MAXK; v += 10) {
-    const a = ang(v), major = v % 30 === 0;
-    const r1 = R0 - 24, r2 = r1 - (major ? 18 : 9);
-    g.beginPath(); g.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); g.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
-    g.lineWidth = major ? 5 : 3; g.lineCap = 'butt'; g.strokeStyle = v >= 120 ? '#ff7a5a' : 'rgba(255,255,255,.85)'; g.stroke();
-    if (major) { g.fillStyle = 'rgba(255,255,255,.8)'; g.font = `800 22px ${FONT}`; g.fillText(v, cx + Math.cos(a) * (r2 - 22), cy + Math.sin(a) * (r2 - 22)); }
-  }
-  // needle
-  const a = ang(kmh);
-  g.save(); g.translate(cx, cy); g.rotate(a);
-  g.beginPath(); g.moveTo(-18, -7); g.lineTo(R0 - 30, -2); g.lineTo(R0 - 30, 2); g.lineTo(-18, 7); g.closePath();
-  g.fillStyle = '#ff5a3a'; g.shadowColor = 'rgba(255,90,58,.8)'; g.shadowBlur = 12; g.fill();
-  g.restore();
-  g.beginPath(); g.arc(cx, cy, 15, 0, TAU); g.fillStyle = '#1d2230'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#ff5a3a'; g.stroke();
-  // digital readout
-  g.fillStyle = '#ffffff'; g.font = `900 74px ${FONT}`;
-  g.fillText(Math.round(kmh), cx, cy + 68);
-  g.fillStyle = '#8be9ff'; g.font = `800 19px ${FONT}`; g.fillText('KM/H', cx, cy + 108);
-  // lap + time line
-  g.font = `900 24px ${FONT}`;
-  g.fillStyle = '#ffe066'; g.textAlign = 'right'; g.fillText(lap, cx - 12, cy + 144);
-  g.fillStyle = '#ffffff'; g.textAlign = 'left'; g.fillText(time, cx + 12, cy + 144);
+const spdEl = document.getElementById('spd'), lapEl = document.getElementById('lapTxt'), timeEl = document.getElementById('timeTxt');
+let hudSpd = -1, hudLap = '', hudTime = '';
+function drawSpeed(kmh, lap, time) {
+  const v = Math.round(kmh);
+  if (v !== hudSpd) { hudSpd = v; spdEl.textContent = v; }
+  if (lap !== hudLap) { hudLap = lap; lapEl.textContent = lap; }
+  if (time !== hudTime) { hudTime = time; timeEl.textContent = time; }
 }
 
 // ---------- menus ----------
@@ -375,14 +336,17 @@ function hideAll() { for (const id of ['menu', 'pause', 'result']) $(id).classLi
 function show(id) { hideAll(); $(id).classList.remove('hidden'); }
 function updateBest() { $('bestTotal').textContent = fmt(BEST.total); $('bestLap').textContent = fmt(BEST.lap); }
 updateBest();
+let touchMode = false;
+function setTouch(on) { touchMode = on; document.body.classList.toggle('touch', on); }
 function lock() {
+  if (touchMode) return;
   try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => $('lockMsg').classList.remove('hidden')); }
   catch (e) { /* ignore */ }
 }
 function startRace() { SFX.init(); SFX.click(); paused = false; resetRace(); lock(); }
 function pauseGame() {
   if (paused || (state !== 'race' && state !== 'countdown')) return;
-  paused = true; holdMouse = holdKey = false;
+  paused = true; holdMouse = holdKey = holdTouch = false; $('tHook').classList.remove('on');
   SFX.mute();
   openSettings(true);
 }
@@ -436,6 +400,7 @@ document.addEventListener('mouseup', (e) => {
   if (e.button === 0 && holdMouse) { holdMouse = false; if (!holding()) releaseHook(); }
 });
 document.addEventListener('keydown', (e) => {
+  if (touchMode) setTouch(false);
   if (e.code === 'KeyE' && !e.repeat) { if (playing()) { holdKey = true; fireHook(); } }
   else if (e.code === 'KeyR' && !e.repeat && (state === 'race' || state === 'countdown' || state === 'finished') && !paused) startRace();
   else if (e.code === 'KeyP' && !e.repeat) { if (paused && !settingsFromMenu) resumeGame(); else pauseGame(); }
@@ -444,8 +409,65 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => {
   if (e.code === 'KeyE' && holdKey) { holdKey = false; if (!holding()) releaseHook(); }
 });
-window.addEventListener('blur', () => { holdMouse = holdKey = false; if (hook.state === 'attached') releaseHook(); });
+window.addEventListener('blur', () => { holdMouse = holdKey = holdTouch = false; if (hook.state === 'attached') releaseHook(); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ---------- touch (iPad): swipe anywhere to look, hold the HAKEN button to grapple ----------
+let lookTouch = null; // { id, x, y }
+window.addEventListener('touchstart', () => { if (!touchMode) setTouch(true); }, { capture: true, passive: true });
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  if (lookTouch) return;
+  const t = e.changedTouches[0];
+  lookTouch = { id: t.identifier, x: t.clientX, y: t.clientY };
+}, { passive: false });
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (!lookTouch) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== lookTouch.id) continue;
+    const dx = t.clientX - lookTouch.x, dy = t.clientY - lookTouch.y;
+    lookTouch.x = t.clientX; lookTouch.y = t.clientY;
+    if (!playing()) continue;
+    const k = 0.0045 * SETTINGS.sens;
+    look.yaw -= dx * k;
+    look.pitch = clamp(look.pitch - dy * k * (SETTINGS.inv ? -1 : 1), -1.45, 1.45);
+  }
+}, { passive: false });
+const endLook = (e) => { if (lookTouch) for (const t of e.changedTouches) if (t.identifier === lookTouch.id) lookTouch = null; };
+canvas.addEventListener('touchend', endLook);
+canvas.addEventListener('touchcancel', endLook);
+// the hook button also works as a look pad: drag while holding to keep aiming
+let hookTouch = null;
+$('tHook').addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  hookTouch = { id: t.identifier, x: t.clientX, y: t.clientY };
+  if (!playing()) return;
+  holdTouch = true; $('tHook').classList.add('on');
+  fireHook();
+}, { passive: false });
+$('tHook').addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (!hookTouch || !playing()) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== hookTouch.id) continue;
+    const k = 0.0045 * SETTINGS.sens;
+    look.yaw -= (t.clientX - hookTouch.x) * k;
+    look.pitch = clamp(look.pitch - (t.clientY - hookTouch.y) * k * (SETTINGS.inv ? -1 : 1), -1.45, 1.45);
+    hookTouch.x = t.clientX; hookTouch.y = t.clientY;
+  }
+}, { passive: false });
+const endHook = (e) => {
+  e.preventDefault();
+  hookTouch = null;
+  $('tHook').classList.remove('on');
+  if (holdTouch) { holdTouch = false; if (!holding()) releaseHook(); }
+};
+$('tHook').addEventListener('touchend', endHook, { passive: false });
+$('tHook').addEventListener('touchcancel', endHook, { passive: false });
+$('tPause').addEventListener('touchstart', (e) => { e.preventDefault(); pauseGame(); }, { passive: false });
+$('tPause').addEventListener('click', () => pauseGame());
 
 // ---------- per-frame visuals ----------
 const _lq = new T.Quaternion(), _lv = new V3(), _lz = new V3(0, 0, -1);
@@ -538,9 +560,10 @@ function updateVisuals(dt, now) {
     cross.classList.toggle('ok', ok);
     cross.classList.toggle('hooked', hook.state === 'attached');
     crossDist.classList.toggle('show', ok);
+    if (touchMode) $('tHook').classList.toggle('ok', ok);
     if (ok) crossDist.textContent = Math.round(aimInfo.distance) + ' m';
     const lap = state === 'countdown' ? 1 : Math.min(LAPS, race.lapDone + 1);
-    drawTacho(speed * 3.6, `RUNDE ${lap}/${LAPS}`, fmt(race.t));
+    drawSpeed(speed * 3.6, `RUNDE ${lap}/${LAPS}`, fmt(race.t));
     $('speedfx').style.opacity = clamp((speed - 16) / 22, 0, 0.75);
     // reel clicks while pulling
     if (pulling) { tickT -= dt * (0.6 + speed * 0.06); if (tickT <= 0) { tickT = 0.12; SFX.reel(); } }
