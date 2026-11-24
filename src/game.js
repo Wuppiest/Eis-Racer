@@ -140,7 +140,8 @@ const look = { yaw: 0, pitch: 0 };
 const hook = { state: 'idle', pos: new V3(), target: new V3(), t: 0, dur: 0, hit: false, ropeLen: 0 };
 const race = { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 0, cdStep: 4, wrongT: 0, finishT: 0 };
 let holdMouse = false, holdKey = false, holdTouch = false, holdSpace = false, holdWheelTouch = false;
-const wheelsWanted = () => holdSpace || holdWheelTouch;
+let holdAdmin = false; // TEST ONLY: admin scripts can hold the wheels out
+const wheelsWanted = () => holdSpace || holdWheelTouch || holdAdmin;
 // on every press the wheels turn to where you are looking right now
 function aimWheels() { if (!wheelsWanted()) P.wheelYaw = look.yaw; }
 const holding = () => holdMouse || holdKey || holdTouch;
@@ -157,10 +158,10 @@ function aimHit() {
   return h.length ? h[0] : null;
 }
 function muzzleWorld(out) { return launcher.localToWorld(out.copy(launcher.userData.muzzle)); }
-function fireHook() {
+function fireHook(forced = null) { // forced: a point to shoot at (admin test scripts)
   if (paused || (state !== 'race' && state !== 'countdown')) return;
   if (hook.state === 'flying' || hook.state === 'attached') return;
-  const h = aimHit();
+  const h = forced ? { point: forced.clone(), object: { userData: {} } } : aimHit();
   muzzleWorld(hook.pos);
   hook.snapPending = hook.snapT != null && simT - hook.snapT <= 0.25;
   // glitch B "Seil-Zieher": head bumped the bridge while hooked onto it, re-fire right after → pulled through the deck
@@ -226,6 +227,7 @@ const _q = { i: 0, f: 0, lat: 0, h: 0, tx: 1, tz: 0, nx: 0, nz: 1, slope: 0, s: 
 const _Z = { ax: 0, az: 0, fric: 1, fricAdd: 0, spin: null };
 function physStep(dt) {
   simT += dt;
+  if (ADMIN.jobs.length && state === 'race') adminTick();
   P.yPrev = P.y;
   if (!paused) updateElements(dt);
   updateHook(dt);
@@ -482,6 +484,124 @@ function tryCrossSwap() {
   P.idx = _q.i; race.ep = null;
   glitch('kreuzungs-verwechslung');
 }
+// ============================================================
+// TEST ONLY: admin menu – shows each glitch at the nearest place where it works
+// ============================================================
+const ADMIN = { jobs: [] };
+function adminLater(delay, fn) { ADMIN.jobs.push({ at: simT + delay, fn }); }
+function adminWatch(fn, timeout = 4) { ADMIN.jobs.push({ watch: fn, until: simT + timeout }); }
+function adminTick() {
+  const jobs = ADMIN.jobs; ADMIN.jobs = []; // jobs added while running land in the new list
+  for (const j of jobs) {
+    if (j.watch) { if (!j.watch() && simT < j.until) ADMIN.jobs.push(j); }
+    else if (simT >= j.at) j.fn(); else ADMIN.jobs.push(j);
+  }
+}
+// nearest sample (along the lap, both directions) that fits
+function adminFind(test) {
+  for (let d = 0; d < NS / 2; d++) {
+    for (const i of [tsAt(P.idx + d).i, tsAt(P.idx - d).i]) if (test(TS[i], i)) return i;
+  }
+  return -1;
+}
+function adminPlace(i, lat, yRel, speed, dirYaw = null) {
+  const s = tsAt(i), yaw = dirYaw == null ? Math.atan2(-s.tx, -s.tz) : dirYaw;
+  hook.state = 'idle'; hook.obj = null; hook.fresh = false; holdKey = false; holdMouse = false; holdAdmin = false;
+  Object.assign(P, { x: s.x + s.nx * lat, z: s.z + s.nz * lat, y: s.h + yRel, vy: 0, vx: -Math.sin(yaw) * speed, vz: -Math.cos(yaw) * speed,
+    w: 0, yaw, idx: s.i, grounded: yRel <= 0.001, off: false, ride: 0, noCeil: false, clipUntil: -9, bumpT: -9, wheel: 0, wTgt: 0 });
+  race.ep = null; race.admin = true;
+  look.yaw = Math.atan2(-s.tx, -s.tz); look.pitch = -0.12;
+}
+function adminAttach(point, fresh = false) {
+  hook.obj = null; hook.state = 'attached'; hook.fresh = fresh; hook.attachT = simT; hook.hit = true;
+  hook.target.copy(point); hook.pos.copy(point); hook.ropeLen = Math.hypot(point.x - P.x, point.z - P.z); holdKey = true;
+}
+const groundBar = (s) => s.h < 0.3 && (s.barL || s.barR);
+const barSide = (s) => (s.barR && (!s.barL || s.k >= 0) ? 1 : -1);
+const ADMIN_RUN = {
+  'seil-snap'() {
+    const i = P.idx; adminPlace(i, 0, 0, 12);
+    const a = tsAt(i + 50), pt = new V3(a.x, a.h + 0.3, a.z);
+    adminAttach(pt);
+    adminLater(0.3, () => { hook.ropeLen = Math.hypot(pt.x - P.x, pt.z - P.z); releaseHook(false); });
+    adminLater(0.4, () => { hook.state = 'idle'; fireHook(pt); });
+    adminLater(1.4, () => { holdKey = false; releaseHook(); });
+    return true;
+  },
+  'bandenreiten'() {
+    const i = adminFind((s) => groundBar(s) && groundBar(tsAt(s.i + 40)) && Math.abs(s.k) < 1 / 25);
+    if (i < 0) return false;
+    const side = barSide(TS[i]);
+    adminPlace(i, side * (HW + 0.55), (WORLD.barH || 0.95) + 0.35, 20); P.vy = -1.5;
+    return true;
+  },
+  'raeder-trampolin'() {
+    adminPlace(P.idx, 0, 0.25, 12); P.vy = -4;
+    holdAdmin = true; P.wheel = 1; P.wTgt = 1; P.wheelDownT = simT; P.wheelYaw = P.yaw;
+    adminLater(3, () => { holdAdmin = false; });
+    return true;
+  },
+  'doppelbumper'() {
+    let best = null, bd = 1e9;
+    for (const el of ELEM.list) if (el.type === 'bumper') { let d = Math.abs(el.p.i - P.idx); d = Math.min(d, NS - d); if (d < bd) { bd = d; best = el; } }
+    if (!best) return false;
+    adminPlace(best.p.i - 7, best.p.lat, 0, 14);
+    adminAttach(new V3(best.x, best.y + 0.8, best.z));
+    adminLater(1.2, () => { holdKey = false; releaseHook(); });
+    return true;
+  },
+  'decken-clip'() {
+    const i = adminFind((s, k) => s.under && s.h < 0.1 && !tsAt(k - 1).under);
+    if (i < 0) return false;
+    adminPlace(i + 4, 0, 2.0, 6); P.vy = 7;
+    return true;
+  },
+  'seil-zieher'() {
+    const i = adminFind((s, k) => s.under && s.h < 0.1 && tsAt(k - 24).under && tsAt(k + 24).under);
+    if (i < 0) return false;
+    adminPlace(i, 0, 0, 3);
+    const s = TS[i], pt = new V3(s.x + s.tx * 4, s.ceil - 0.9, s.z + s.tz * 4);
+    adminAttach(pt, true);
+    const t0 = simT;
+    adminWatch(() => {
+      if (P.bumpT < t0) return false;
+      adminLater(0.15, () => { hook.state = 'idle'; fireHook(pt); adminLater(0.8, () => { holdKey = false; releaseHook(); }); });
+      return true;
+    });
+    return true;
+  },
+  'kreuzungs-verwechslung'() {
+    const i = adminFind((s) => {
+      if (s.alt == null || s.alt < 0) return false;
+      let d = s.alt - s.i; if (d < 0) d += NS;
+      const b = TS[s.alt];
+      // where the floe will stand (at the edge toward the other piece) must be close enough for the glitch
+      const dd = Math.hypot(s.x - b.x, s.z - b.z), sg = Math.sign((b.x - s.x) * s.nx + (b.z - s.z) * s.nz) || 1, lat = dd < HW ? 0 : sg * (LIM - 0.4);
+      return d > 0 && d <= NS * 0.7 && Math.hypot(s.x + s.nx * lat - b.x, s.z + s.nz * lat - b.z) <= TRACK_W + 4.5 && Math.abs(s.h - b.h) < 2;
+    });
+    if (i < 0) return false;
+    const s = TS[i], b = TS[s.alt], sg = Math.sign((b.x - s.x) * s.nx + (b.z - s.z) * s.nz) || 1;
+    const dd = Math.hypot(s.x - b.x, s.z - b.z);
+    adminPlace(i, dd < HW ? 0 : sg * (LIM - 0.4), 0, 15);
+    P.wheelPressT = simT; tryCrossSwap();
+    return true;
+  },
+  'wand-clip'() {
+    const i = adminFind((s) => groundBar(s) && groundBar(tsAt(s.i + 30)) && Math.abs(s.k) < 1 / 60);
+    if (i < 0) return false;
+    const s = TS[i], side = s.barR ? 1 : -1, a = PI / 4;
+    adminPlace(i, side * (LIM - 1.6), 0.2, 0);
+    P.vx = (s.tx * Math.cos(a) + s.nx * side * Math.sin(a)) * 19; P.vz = (s.tz * Math.cos(a) + s.nz * side * Math.sin(a)) * 19;
+    return true;
+  },
+};
+function adminRun(name) {
+  if (state === 'countdown') { race.cd = 0.001; race.cdStep = 1; updateCountdown(0.01); }
+  if (state !== 'race') return;
+  ADMIN.jobs = [];
+  if (!ADMIN_RUN[name]()) toast('🛠 Auf dieser Strecke gibt es dafür keine Stelle', 2200, true);
+  else toast('🛠 Vorführung: ' + GLITCH_NAMES[name], 1400);
+}
 // nearest piece of track below the floe (after hopping across the infield)
 function nearestPiece(x, z, y) {
   let best = 1e18, bi = -1;
@@ -519,7 +639,8 @@ function resetRace() {
   look.yaw = WORLD.start.yaw; look.pitch = -0.04;
   hook.state = 'idle';
   ELEM.t = 0;
-  Object.assign(race, { exempt: false, glitchStep: false, skip: 0, ep: null, flown: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
+  ADMIN.jobs = []; holdAdmin = false;
+  Object.assign(race, { admin: false, exempt: false, glitchStep: false, skip: 0, ep: null, flown: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
   WORLD.lights.forEach((m) => m.color.set('#3a0d0d'));
   state = 'countdown';
   setHud(true);
@@ -550,10 +671,11 @@ function finishRace() {
   SFX.finish();
   const total = race.t, fastest = Math.min(...race.laps);
   let rec = [];
-  if (BEST.total == null || total < BEST.total) { BEST.total = total; rec.push('NEUE BESTZEIT!'); }
-  if (BEST.lap == null || fastest < BEST.lap) { BEST.lap = fastest; rec.push('NEUE BESTE RUNDE!'); }
+  if (race.admin) rec.push('(Admin benutzt – nicht gespeichert)');
+  else if (BEST.total == null || total < BEST.total) { BEST.total = total; rec.push('NEUE BESTZEIT!'); }
+  if (!race.admin && (BEST.lap == null || fastest < BEST.lap)) { BEST.lap = fastest; rec.push('NEUE BESTE RUNDE!'); }
   store('eisracer_best2', BESTS);
-  if (rec.length) SFX.record();
+  if (rec.length && !race.admin) SFX.record();
   document.getElementById('resTotal').textContent = fmt(total);
   document.getElementById('resRec').textContent = rec.length ? '🏆 ' + rec.join(' · ') : 'Bestzeit: ' + fmt(BEST.total);
   document.getElementById('resLaps').innerHTML = race.laps.map((t, i) => `<li class="${t === fastest ? 'fast' : ''}"><span>Runde ${i + 1}</span>${fmt(t)}</li>`).join('');
@@ -662,6 +784,15 @@ function pauseGame() {
   openSettings(true);
 }
 function resumeGame() { SFX.click(); paused = false; hideAll(); lock(); }
+// TEST ONLY: admin buttons in the pause menu
+{
+  const grid = document.getElementById('adminGrid');
+  for (const [id, label] of Object.entries(GLITCH_NAMES)) {
+    const b = document.createElement('button'); b.textContent = label;
+    b.onclick = () => { resumeGame(); adminRun(id); };
+    grid.appendChild(b);
+  }
+}
 function toMenu() {
   SFX.click(); paused = false; state = 'menu'; setHud(false); hook.state = 'idle';
   placeAtStart(); show('menu'); updateBest(); SFX.mute();
@@ -675,6 +806,7 @@ function openSettings(inGame) {
   document.querySelector('#pause h2').textContent = inGame ? 'Pause' : 'Einstellungen';
   document.querySelector('#pause .row2').classList.toggle('hidden', !inGame);
   $('bMenu').classList.toggle('hidden', !inGame);
+  $('adminBox').classList.toggle('hidden', !inGame || !GLITCH_DEBUG);
   show('pause');
 }
 $('bStart').onclick = openMaps;

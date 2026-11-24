@@ -54,6 +54,12 @@
 
   #toast { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); font-size: 26px; font-weight: 900; padding: 10px 24px; background: rgba(15,18,32,.66); border: 2px solid rgba(255,255,255,.18); border-radius: 14px; opacity: 0; transition: opacity .35s; white-space: nowrap; font-variant-numeric: tabular-nums; }
   #toast.show { opacity: 1; transition: none; }
+  /* TEST ONLY: admin menu */
+  .adminBox { margin: 0 0 14px; padding: 10px 12px 12px; border: 2px dashed #a24bd8; border-radius: 14px; background: rgba(162,75,216,.12); text-align: left; }
+  .adminBox small { display: block; font-size: 12px; font-weight: 800; letter-spacing: 1px; color: #d8a8ff; margin-bottom: 8px; }
+  #adminGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  #adminGrid button { padding: 8px 10px; border: 0; border-radius: 9px; background: #a24bd8; color: #fff; font-family: inherit; font-weight: 800; font-size: 14px; cursor: pointer; }
+  #adminGrid button:hover { filter: brightness(1.15); }
   /* TEST ONLY: glitch indicator */
   #glitchTag { position: absolute; top: calc(18% + 64px); left: 50%; transform: translateX(-50%) skewX(-8deg); padding: 6px 16px; border-radius: 10px; background: #a24bd8; color: #fff;
     font-size: 20px; font-weight: 900; letter-spacing: 1px; opacity: 0; transition: opacity .4s; white-space: nowrap; box-shadow: 0 0 18px rgba(162,75,216,.7); text-shadow: 2px 0 #29e6ff, -2px 0 #ff3bd4; }
@@ -174,6 +180,7 @@
       <span>Sichtfeld (FOV)</span><input type="range" id="sFov" min="65" max="100" step="1">
       <span>Maus invertieren</span><input type="checkbox" id="sInv">
     </div>
+    <div id="adminBox" class="adminBox"><small>🛠 TEST: Glitch vorführen (an der nächsten passenden Stelle)</small><div id="adminGrid"></div></div><!-- TEST ONLY -->
     <button class="btn ice" id="bResume">▶ Weiter</button>
     <div class="row2"><button class="btn" id="bRestart">↻ Neustart</button><button class="btn grey" id="bPauseMaps">🗺️ Strecken</button></div>
     <button class="btn grey" id="bMenu">Hauptmenü</button>

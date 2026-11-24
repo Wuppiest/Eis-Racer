@@ -12,3 +12,15 @@ Bugs, die als Feature im Spiel geblieben sind. Ein geschaffter Trick macht ein k
 | **Seil-Zieher** | Du wirst durch die Brücke nach oben gezogen. | Die Brücke **über dir** anhaken, hochspringen, mit dem Kopf anstoßen und innerhalb von **0,35 s** loslassen und neu schießen. |
 | **Kreuzungs-Verwechslung** | Das Spiel setzt dich auf einen anderen, weiter vorne liegenden Streckenteil. Großer Skip, zählt nicht als Abkürzung. | Wo sich zwei Streckenteile kreuzen oder dicht nebeneinander liegen: **Räder antippen** (drücken und innerhalb von **0,3 s** loslassen). |
 | **Wand-Clip** | Du rutschst durch die Bande, eventuell bis auf einen anderen Streckenteil. Zählt nicht als Abkürzung. | Mit **über 61 km/h** in einem **kleinen Hüpfer** im Winkel **20–70°** gegen die Bande. |
+
+## Test-Werkzeuge (später wieder entfernen)
+- **Bug-Anzeige:** Ein lila Banner zeigt den Namen eines geschafften Tricks.
+- **Admin-Menü** im Pause-Menü (Esc / ❚❚): Ein Knopf pro Trick setzt dich an die nächste passende Stelle der Strecke und führt ihn automatisch vor. Gibt es auf der Strecke keine Stelle dafür, kommt eine Meldung. Bestzeiten werden in diesem Rennen nicht gespeichert.
+- Beides hängt am Schalter `GLITCH_DEBUG` in `src/game.js`.
+
+| Trick | Möglich auf |
+|---|---|
+| Seil-Snap, Bandenreiten, Räder-Trampolin, Wand-Clip | allen Strecken |
+| Doppelbumper | Nachtschicht, Kirmes, Turnhalle, Flipper, Eisstadion |
+| Decken-Clip, Seil-Zieher | Kart Arena, Parkhaus, Eisstadion (Brücken) |
+| Kreuzungs-Verwechslung | Kart Arena, Nachtschicht, Turnhalle |
