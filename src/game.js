@@ -14,8 +14,10 @@ const ANG_DAMP = 1.1;     // spin damping
 const HOOK_RANGE = 80, HOOK_SPEED = 170, RETRACT_SPEED = 110;
 let LIM = 5.2; // lateral limit for the floe center (set per map)
 // hopping: a rope to a high anchor lifts the floe a little (much weaker than the forward pull)
-const LIFT_K = 0.9;       // share of the upward rope component that actually lifts (max net lift stays well below the forward pull)
-const MAX_AIR = 2.2;      // lift fades out toward this height above the ground
+const JUMP_V = 5.6;       // upward kick when the hook bites a high anchor (m/s) – quick like a jump
+const CLIMB_V = 0.9;      // afterwards the rope only lifts you slowly (m/s) ...
+const MAX_AIR = 2.2;      // ... up to this height above the ground
+const MAX_SKIP = 60;      // a single short cut may skip this much track (m, or 15 % of the lap) and the lap still counts
 const G_AIR = 9.81;
 const BAR_OUT = 1.15;     // barrier band outside the track edge (m)
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
@@ -171,7 +173,7 @@ function updateHook(dt) {
     hook.pos.lerpVectors(hook.start, hook.target, k);
     if (k >= 1) {
       if (hook.hit && holding()) {
-        hook.state = 'attached';
+        hook.state = 'attached'; hook.fresh = true;
         hook.ropeLen = Math.hypot(hook.target.x - P.x, hook.target.z - P.z);
         SFX.hit();
         for (let i = 0; i < 10; i++) spawnPart(hook.target.x, hook.target.y, hook.target.z, (Math.random() - 0.5) * 5, Math.random() * 4, (Math.random() - 0.5) * 5, 0.5, 0.06);
@@ -206,7 +208,7 @@ function physStep(dt) {
   if (wTarget !== P.wTgt) { P.wTgt = wTarget; if (state !== 'menu') SFX.wheelsUp(); }
   if (state !== 'race' && state !== 'finished') return;
   const racing = state === 'race';
-  let ax = 0, az = 0, lift = 0;
+  let ax = 0, az = 0, upF = 0;
   let ux = 0, uz = 0, dist = 0;
   if (hook.state === 'attached') {
     const dx = hook.target.x - P.x, dz = hook.target.z - P.z;
@@ -218,8 +220,13 @@ function physStep(dt) {
       const pull = PULL * clamp(dist / 6, 0.4, 1) * clamp(1 - vr / REEL_MAX, 0, 1.3);
       ax += ux * pull; az += uz * pull;
       // anchor above you (ceiling, trusses ...): a bit of lift
+      // 0 = anchor too low / too far away, 1 = steeply above you
       const dy = hook.target.y - (P.y + FLOE_TOP + 0.9);
-      if (dy > 0) lift = PULL * clamp(dist / 6, 0.4, 1) * (dy / Math.hypot(dist, dy)) * LIFT_K;
+      if (dy > 0) upF = clamp((dy / Math.hypot(dist, dy) - 0.25) / 0.35, 0, 1);
+      if (hook.fresh) { // the moment the hook bites: a quick hop
+        hook.fresh = false;
+        if (upF > 0 && P.grounded) { P.vy = Math.max(P.vy, JUMP_V * (0.35 + 0.65 * upF)); P.grounded = false; SFX.jump(); }
+      }
       hook.ropeLen = Math.min(hook.ropeLen, dist);
       pulling = true;
       // the pull also swings the floe's nose toward the rope
@@ -272,12 +279,15 @@ function physStep(dt) {
   // vertical: ground under the floe = deck / track, or the hall floor beside it
   const alat = Math.abs(_q.lat);
   const groundY = alat <= HW + 0.7 ? _q.h : 0;
-  const fade = clamp(1 - Math.pow(Math.max(0, P.y - groundY) / MAX_AIR, 3), 0, 1);
-  const ay = lift * fade - G_AIR;
+  let ay = -G_AIR;
+  if (pulling && upF > 0) {
+    // hanging on a high anchor: climb slowly to MAX_AIR (a weak anchor only slows the fall)
+    const tv = Math.min(lerp(-1.2, CLIMB_V, upF), (MAX_AIR - (P.y - groundY)) * 2.5);
+    if (P.vy <= tv) ay = clamp((tv - P.vy) * 8, -G_AIR, 25);
+  }
   if (P.grounded && ay <= 0) { P.vy = 0; P.y = groundY; }
   else {
-    P.vy += ay * dt; P.vy *= 1 - 0.4 * dt;
-    if (P.vy > 0 && P.y - groundY > 1.6) P.vy *= Math.exp(-5 * dt); // soft ceiling: no big flights
+    P.vy += ay * dt;
     P.y += P.vy * dt;
     if (P.y <= groundY) {
       if (!P.grounded && P.vy < -2.5) land(-P.vy);
@@ -336,12 +346,19 @@ function physStep(dt) {
 // laps: crossing the line only counts if every quarter of the lap was visited (small corner cuts are fine)
 function lapLogic(prev, cur) {
   if (state !== 'race') return;
-  race.vis |= 1 << Math.min(3, Math.floor((cur / NS) * 4));
+  // a jump in track position = a short cut (normal sliding moves < 1 m per step)
+  let d = cur - prev; if (d > NS / 2) d -= NS; else if (d < -NS / 2) d += NS;
+  const skip = d * DS;
+  if (skip > 4) {
+    race.skip = Math.max(race.skip, skip);
+    if (skip > Math.max(MAX_SKIP, TLEN * 0.15)) toast('✂️ ABKÜRZUNG ZU GROSS – diese Runde zählt nicht!', 2400, true);
+  }
   if (cur < NS * 0.25 && prev > NS * 0.75) {           // forward over the line
     if (race.backs > 0) { race.backs--; return; }
-    if (!race.started) { race.started = true; race.vis = 1; return; }
-    if (race.vis !== 15) { toast('✂️ ABKÜRZUNG – Runde zählt nicht!', 2200, true); SFX.wrong(); race.vis = 1; return; }
-    race.vis = 1;
+    if (!race.started) { race.started = true; race.skip = 0; return; }
+    const tooBig = race.skip > Math.max(MAX_SKIP, TLEN * 0.15);
+    race.skip = 0;
+    if (tooBig) { SFX.wrong(); return; }
     const done = ++race.lapDone, lt = race.t - race.lapStart;
     race.laps.push(lt); race.lapStart = race.t;
     if (done >= LAPS) finishRace();
@@ -385,7 +402,7 @@ function resetRace() {
   look.yaw = WORLD.start.yaw; look.pitch = -0.04;
   hook.state = 'idle';
   ELEM.t = 0;
-  Object.assign(race, { vis: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
+  Object.assign(race, { skip: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
   WORLD.lights.forEach((m) => m.color.set('#3a0d0d'));
   state = 'countdown';
   setHud(true);

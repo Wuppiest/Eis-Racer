@@ -30,11 +30,11 @@ Wird beim ersten Antippen automatisch erkannt (am besten im Querformat). Sobald 
 Das Fadenkreuz leuchtet **türkis**, wenn der Haken etwas treffen würde (Reichweite 80 m), und **orange**, solange du eingehakt bist.
 
 ### Hüpfen
-Hängt der Haken hoch über dir (Decke, Fachwerk, Banner, hohe Pfosten), zieht dich das Seil auch etwas nach oben. Damit kannst du über Kurvenecken und Banden hüpfen. Der Zug nach oben ist deutlich schwächer als der nach vorne und endet bei gut 2 m Höhe. Weit entfernte Anker heben dich kaum an.
+Hängt der Haken hoch über dir (Decke, Fachwerk, Banner, hohe Pfosten), springst du beim Einhaken kurz hoch, wie bei einem Sprung (in einer halben Sekunde auf etwa 1,5 m). Solange du dranbleibst, steigst du danach nur noch langsam bis auf gut 2 m. So hüpfst du über Kurvenecken und Banden. Weit entfernte Anker geben nur einen kleinen Hüpfer.
 
 ## Regeln
 - 3 Runden auf Zeit. Die Uhr startet bei „LOS!“.
-- Kleine Abkürzungen über Ecken sind erlaubt. Wer ein ganzes Viertel der Runde überspringt, bekommt die Runde nicht gezählt („Abkürzung“).
+- Abkürzungen über Ecken sind erlaubt und die Runde zählt. Nur wenn ein einzelner Sprung zu viel Strecke überspringt (über 60 m bzw. 15 % der Runde), zählt die Runde nicht („Abkürzung zu groß“).
 - Wer neben der Strecke landet, kommt per Haken und Sprung wieder zurück.
 - Unten in der Mitte stehen klein die Geschwindigkeit, die Runde und die Zeit.
 - Bestzeit und beste Runde werden im Browser gespeichert.
