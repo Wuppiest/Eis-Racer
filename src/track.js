@@ -40,7 +40,7 @@ function setupTrack(def) {
       const b = TS[j];
       const dx = a.x - b.x, dz = a.z - b.z, dd = dx * dx + dz * dz;
       if (dd < (TRACK_W + 4) * (TRACK_W + 4)) {
-        if (b.h > a.h + 3) a.under = true;
+        if (b.h > a.h + 3) { a.under = true; a.ceil = Math.min(a.ceil || 99, b.h); }
         if (a.h > b.h + 3) a.over = true;
       }
       if (Math.abs(a.h - b.h) < 1 && dd < (HW + 1.5) * (HW + 1.5)) { a.flatNear = true; if (i > j) a.flatTop = true; }

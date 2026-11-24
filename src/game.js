@@ -14,7 +14,7 @@ const ANG_DAMP = 1.1;     // spin damping
 const HOOK_RANGE = 80, HOOK_SPEED = 170, RETRACT_SPEED = 110;
 let LIM = 5.2; // lateral limit for the floe center (set per map)
 // hopping: a rope to a high anchor lifts the floe a little (much weaker than the forward pull)
-const JUMP_V = 8;         // upward kick when the hook bites a high anchor (m/s) – a real jump, ~3 m
+const JUMP_V = 10;        // upward kick when the hook bites a high anchor (m/s) – a real jump, ~5 m
 const CLIMB_V = 0.9;      // afterwards the rope only lifts you slowly (m/s) ...
 const MAX_AIR = 2.2;      // ... up to this height above the ground
 const MAX_SKIP = 300;     // a short cut may save this much track (m, or 50 % of the lap) and the lap still counts
@@ -285,6 +285,8 @@ function physStep(dt) {
     const tv = Math.min(lerp(-1.2, CLIMB_V, upF), (MAX_AIR - (P.y - groundY)) * 2.5);
     if (P.vy <= tv) ay = clamp((tv - P.vy) * 8, -G_AIR, 25);
   }
+  // under a bridge: the deck above is a ceiling (head bump)
+  const ceilS = alat <= HW + 1.5 ? TS[_q.i].ceil : null;
   if (P.grounded && ay <= 0) { P.vy = 0; P.y = groundY; }
   else {
     P.vy += ay * dt;
@@ -293,6 +295,7 @@ function physStep(dt) {
       if (!P.grounded && P.vy < -2.5) land(-P.vy);
       P.y = groundY; P.vy = 0; P.grounded = true;
     } else P.grounded = false;
+    if (ceilS) { const top = ceilS - 0.8 - 2.1; if (P.y > top) { P.y = top; if (P.vy > 0) { if (P.vy > 3) land(P.vy * 0.5); P.vy = -1; } } }
   }
   // barriers: only if we are not above them; from inside (on the track) or from outside (infield)
   const barTop = (WORLD.barH || 0.95) + 0.05, OUT = HW + BAR_OUT + FLOE_R;
