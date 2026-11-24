@@ -17,7 +17,7 @@ let LIM = 5.2; // lateral limit for the floe center (set per map)
 const JUMP_V = 8;         // upward kick when the hook bites a high anchor (m/s) – a real jump, ~3 m
 const CLIMB_V = 0.9;      // afterwards the rope only lifts you slowly (m/s) ...
 const MAX_AIR = 2.2;      // ... up to this height above the ground
-const MAX_SKIP = 150;     // a short cut may save this much track (m, or 30 % of the lap) and the lap still counts
+const MAX_SKIP = 300;     // a short cut may save this much track (m, or 50 % of the lap) and the lap still counts
 const G_AIR = 9.81;
 const BAR_OUT = 1.15;     // barrier band outside the track edge (m)
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
@@ -356,7 +356,7 @@ function lapLogic(prev, cur) {
     if (race.ep != null) { checkCut(cur); race.ep = cur; race.flown = 0; } // crossed the line mid-air
     if (race.backs > 0) { race.backs--; return; }
     if (!race.started) { race.started = true; race.skip = 0; return; }
-    const tooBig = race.skip > Math.max(MAX_SKIP, TLEN * 0.3);
+    const tooBig = race.skip > Math.max(MAX_SKIP, TLEN * 0.5);
     race.skip = 0;
     if (tooBig) { SFX.wrong(); return; }
     const done = ++race.lapDone, lt = race.t - race.lapStart;
@@ -370,7 +370,7 @@ function checkCut(cur) {
   let d = cur - race.ep; if (d < -NS * 0.15) d += NS; else if (d > NS * 0.85) d -= NS;
   const saved = d * DS - race.flown;
   if (saved > race.skip) race.skip = saved;
-  if (saved > Math.max(MAX_SKIP, TLEN * 0.3)) toast('✂️ ABKÜRZUNG ZU GROSS – diese Runde zählt nicht!', 2400, true);
+  if (saved > Math.max(MAX_SKIP, TLEN * 0.5)) toast('✂️ ABKÜRZUNG ZU GROSS – diese Runde zählt nicht!', 2400, true);
 }
 // nearest piece of track below the floe (after hopping across the infield)
 function nearestPiece(x, z, y) {
