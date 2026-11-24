@@ -2641,7 +2641,7 @@ let LIM = 5.2; // lateral limit for the floe center (set per map)
 const JUMP_V = 5.6;       // upward kick when the hook bites a high anchor (m/s) – quick like a jump
 const CLIMB_V = 0.9;      // afterwards the rope only lifts you slowly (m/s) ...
 const MAX_AIR = 2.2;      // ... up to this height above the ground
-const MAX_SKIP = 60;      // a single short cut may skip this much track (m, or 15 % of the lap) and the lap still counts
+const MAX_SKIP = 150;     // a short cut may save this much track (m, or 30 % of the lap) and the lap still counts
 const G_AIR = 9.81;
 const BAR_OUT = 1.15;     // barrier band outside the track edge (m)
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
@@ -2970,24 +2970,31 @@ function physStep(dt) {
 // laps: crossing the line only counts if every quarter of the lap was visited (small corner cuts are fine)
 function lapLogic(prev, cur) {
   if (state !== 'race') return;
-  // a jump in track position = a short cut (normal sliding moves < 1 m per step)
-  let d = cur - prev; if (d > NS / 2) d -= NS; else if (d < -NS / 2) d += NS;
-  const skip = d * DS;
-  if (skip > 4) {
-    race.skip = Math.max(race.skip, skip);
-    if (skip > Math.max(MAX_SKIP, TLEN * 0.15)) toast('✂️ ABKÜRZUNG ZU GROSS – diese Runde zählt nicht!', 2400, true);
-  }
+  // short cuts: from take-off to landing, compare the track you skipped with the way you actually flew
+  const onTrack = P.grounded && !P.off;
+  if (!onTrack) {
+    if (race.ep == null) { race.ep = prev; race.flown = 0; }
+    race.flown += Math.hypot(P.vx, P.vz) * STEP;
+  } else if (race.ep != null) { checkCut(cur); race.ep = null; }
   if (cur < NS * 0.25 && prev > NS * 0.75) {           // forward over the line
+    if (race.ep != null) { checkCut(cur); race.ep = cur; race.flown = 0; } // crossed the line mid-air
     if (race.backs > 0) { race.backs--; return; }
     if (!race.started) { race.started = true; race.skip = 0; return; }
-    const tooBig = race.skip > Math.max(MAX_SKIP, TLEN * 0.15);
+    const tooBig = race.skip > Math.max(MAX_SKIP, TLEN * 0.3);
     race.skip = 0;
     if (tooBig) { SFX.wrong(); return; }
     const done = ++race.lapDone, lt = race.t - race.lapStart;
     race.laps.push(lt); race.lapStart = race.t;
     if (done >= LAPS) finishRace();
     else { SFX.lap(); toast(`RUNDE <b>${done + 1}/${LAPS}</b> &nbsp; ${fmt(lt)}`, 2200); }
-  } else if (cur > NS * 0.75 && prev < NS * 0.25) race.backs++; // backwards over the line
+  } else if (cur > NS * 0.75 && prev < NS * 0.25 && race.ep == null) race.backs++; // backwards over the line (not by a jump)
+}
+function checkCut(cur) {
+  // landing a little behind = backwards; anything else counts as a jump forward (even across the whole hall)
+  let d = cur - race.ep; if (d < -NS * 0.15) d += NS; else if (d > NS * 0.85) d -= NS;
+  const saved = d * DS - race.flown;
+  if (saved > race.skip) race.skip = saved;
+  if (saved > Math.max(MAX_SKIP, TLEN * 0.3)) toast('✂️ ABKÜRZUNG ZU GROSS – diese Runde zählt nicht!', 2400, true);
 }
 // nearest piece of track below the floe (after hopping across the infield)
 function nearestPiece(x, z, y) {
@@ -3026,7 +3033,7 @@ function resetRace() {
   look.yaw = WORLD.start.yaw; look.pitch = -0.04;
   hook.state = 'idle';
   ELEM.t = 0;
-  Object.assign(race, { skip: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
+  Object.assign(race, { skip: 0, ep: null, flown: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
   WORLD.lights.forEach((m) => m.color.set('#3a0d0d'));
   state = 'countdown';
   setHud(true);

@@ -34,7 +34,7 @@ Hängt der Haken hoch über dir (Decke, Fachwerk, Banner, hohe Pfosten), springs
 
 ## Regeln
 - 3 Runden auf Zeit. Die Uhr startet bei „LOS!“.
-- Abkürzungen über Ecken sind erlaubt und die Runde zählt. Nur wenn ein einzelner Sprung zu viel Strecke überspringt (über 60 m bzw. 15 % der Runde), zählt die Runde nicht („Abkürzung zu groß“).
+- Abkürzungen über Ecken sind erlaubt und die Runde zählt. Nur wenn ein Sprung mehr als 150 m Strecke einspart (bzw. 30 % der Runde, falls das mehr ist), zählt die Runde nicht („Abkürzung zu groß“). Gezählt wird der gesparte Weg: Strecke entlang der Bahn minus geflogener Weg.
 - Wer neben der Strecke landet, kommt per Haken und Sprung wieder zurück.
 - Unten in der Mitte stehen klein die Geschwindigkeit, die Runde und die Zeit.
 - Bestzeit und beste Runde werden im Browser gespeichert.
