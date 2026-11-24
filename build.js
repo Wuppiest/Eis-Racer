@@ -6,6 +6,7 @@ const three = r('vendor/three.min.js').replace(/^console\.warn\([^\n]*\),/, '0,'
 const game = ['src/core.js', 'src/track.js', 'src/maps.js', 'src/world.js', 'src/decor.js', 'src/elements.js', 'src/floe.js', 'src/audio.js', 'src/game.js'].map(r).join('\n');
 const html = r('src/template.html')
   .replace('/*__THREE__*/', () => three)
-  .replace('/*__GAME__*/', () => game);
+  .replace('/*__GAME__*/', () => game)
+  .replace('/*__BUILD__*/', () => new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin', dateStyle: 'short', timeStyle: 'short' }));
 fs.writeFileSync(path.join(__dirname, 'index.html'), html);
 console.log('index.html written,', (html.length / 1024).toFixed(0), 'KB');

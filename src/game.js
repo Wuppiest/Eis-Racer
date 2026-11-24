@@ -175,8 +175,8 @@ function fireHook(forced = null) { // forced: a point to shoot at (admin test sc
   if (simT - P.bumpT < 0.35 && state === 'race') { P.bumpT = -9; P.noCeil = true; P.vy = Math.max(P.vy, 9); P.grounded = false; P.ride = 0; race.exempt = true; glitch('seil-zieher'); }
   hook.obj = null;
   // glitch 5 "Räder-Trampolin": wheels still extending + hook shot steeply down at the floor right below you
-  hook.slamArmed = !!h && state === 'race' && wheelsWanted() && P.wheel > 0 && P.wheel < 1 &&
-    h.point.y < P.y + 0.5 && Math.hypot(h.point.x - P.x, h.point.z - P.z) < 4.5;
+  hook.slamArmed = !!h && state === 'race' && wheelsWanted() && simT - P.wheelPressT <= WHEEL_TIME &&
+    h.point.y < P.y + 0.5 && Math.hypot(h.point.x - P.x, h.point.z - P.z) < 6;
   if (h) {
     hook.target.copy(h.point); hook.hit = true;
     if (h.object.userData.dyn) { hook.obj = h.object; hook.local = h.object.worldToLocal(h.point.clone()); }

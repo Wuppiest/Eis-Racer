@@ -124,6 +124,7 @@
   #resLaps li { display: flex; justify-content: space-between; padding: 7px 12px; margin: 4px 0; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
   #resLaps li.fast { background: rgba(79,242,106,.16); color: #8dffa3; }
   #resLaps li span { opacity: .75; }
+  #buildTag { position: absolute; right: 14px; bottom: 10px; font-size: 12px; font-weight: 700; opacity: .55; }
   .curMap { margin: 0 0 8px; padding: 8px 14px; border-radius: 12px; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.12); }
   .curMap small { display: block; font-size: 11px; font-weight: 800; letter-spacing: 2px; opacity: .7; }
   .curMap b { font-size: 20px; font-weight: 900; }
@@ -173,6 +174,7 @@
 <div id="count" class="hidden"></div>
 
 <div id="menu" class="overlay">
+  <div id="buildTag">Build 24.11.26, 17:32</div>
   <div class="mcol">
     <h1 class="logo"><span>EIS</span><span>RACER</span></h1>
     <div class="tag">Du sitzt auf einer Eisscholle mitten in einer Kart-Halle. Kein Gas, keine Lenkung, nur dein <b>Greifhaken</b>.<br>Häng dich irgendwo ein, zieh dich ran und schleuder dich durch die Kurven. 3 Runden, auf Zeit.</div>
@@ -2855,8 +2857,8 @@ function fireHook(forced = null) { // forced: a point to shoot at (admin test sc
   if (simT - P.bumpT < 0.35 && state === 'race') { P.bumpT = -9; P.noCeil = true; P.vy = Math.max(P.vy, 9); P.grounded = false; P.ride = 0; race.exempt = true; glitch('seil-zieher'); }
   hook.obj = null;
   // glitch 5 "Räder-Trampolin": wheels still extending + hook shot steeply down at the floor right below you
-  hook.slamArmed = !!h && state === 'race' && wheelsWanted() && P.wheel > 0 && P.wheel < 1 &&
-    h.point.y < P.y + 0.5 && Math.hypot(h.point.x - P.x, h.point.z - P.z) < 4.5;
+  hook.slamArmed = !!h && state === 'race' && wheelsWanted() && simT - P.wheelPressT <= WHEEL_TIME &&
+    h.point.y < P.y + 0.5 && Math.hypot(h.point.x - P.x, h.point.z - P.z) < 6;
   if (h) {
     hook.target.copy(h.point); hook.hit = true;
     if (h.object.userData.dyn) { hook.obj = h.object; hook.local = h.object.worldToLocal(h.point.clone()); }
