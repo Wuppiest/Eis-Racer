@@ -33,7 +33,7 @@ function setupTrack(def) {
   }
   // glitch "Kreuzungs-Verwechslung": the nearest other piece at the same level, if close enough
   for (let i = 0; i < NS; i++) {
-    const a = TS[i]; let best = (TRACK_W + 5) * (TRACK_W + 5), bj = -1;
+    const a = TS[i]; let best = (TRACK_W + 9) * (TRACK_W + 9), bj = -1;
     for (let j = 0; j < NS; j += 2) {
       const d = Math.abs(i - j), ring = Math.min(d, NS - d);
       if (ring * DS < 60 || Math.abs(a.h - TS[j].h) > 1) continue;
