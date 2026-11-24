@@ -339,7 +339,14 @@ const ETYPES = {
     el.update = (t, dt) => { el.flash = Math.max(0, el.flash - dt * 4); const s = 1 + el.flash * 0.18; g.scale.set(s, 1 + el.flash * 0.08, s); };
     el.collide = () => {
       if (Math.abs(P.y - el.y) > 2) return;
-      if (hitCircle(el.x, el.z, r, 0, 0, 0.9, e.kick || 14) && el.flash < 0.5) { el.flash = 1; SFX.bumper(); }
+      // glitch 6 "Doppelbumper": hook bit into this bumper a moment before you hit it → the kick counts twice (and more)
+      let kick = e.kick || 14, dbl = false;
+      if (Math.hypot(P.x - el.x, P.z - el.z) < r + FLOE_R && hook.state === 'attached' && simT - (hook.attachT || -9) < 0.2 &&
+          Math.hypot(hook.target.x - el.x, hook.target.z - el.z) < r + 1.6) { kick *= 2.6; dbl = true; }
+      if (hitCircle(el.x, el.z, r, 0, 0, 0.9, kick) && el.flash < 0.5) {
+        el.flash = 1; SFX.bumper();
+        if (dbl) { releaseHook(true); capSpeed(60); glitch('doppelbumper'); }
+      }
     };
     return el;
   },

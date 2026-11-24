@@ -116,6 +116,10 @@ const SFX = (() => {
     boost() { noise({ dur: 0.5, v: 0.22, type: 'bandpass', f0: 600, f1: 3200, q: 1.5 }); tone({ type: 'sawtooth', f0: 220, f1: 660, dur: 0.35, v: 0.05, filter: 2400 }); },
     bumper() { tone({ type: 'square', f0: 520, f1: 1040, dur: 0.12, v: 0.1, filter: 3000 }); tone({ type: 'triangle', f0: 1560, dur: 0.18, v: 0.06, delay: 0.04 }); noise({ dur: 0.08, v: 0.2, type: 'bandpass', f0: 1800, q: 2 }); },
     jump() { noise({ dur: 0.22, v: 0.16, type: 'bandpass', f0: 500, f1: 1800, q: 1.2 }); tone({ type: 'triangle', f0: 260, f1: 620, dur: 0.18, v: 0.07 }); },
+    glitch() { // short digital stutter
+      for (let k = 0; k < 5; k++) tone({ type: 'square', f0: 300 + Math.random() * 1500, dur: 0.03, v: 0.05, delay: k * 0.028, filter: 5000 });
+      noise({ dur: 0.12, v: 0.08, type: 'highpass', f0: 4000, delay: 0.02 });
+    },
     click() { tone({ type: 'triangle', f0: 900, f1: 1200, dur: 0.05, v: 0.06 }); },
     wrong() { tone({ type: 'square', f0: 220, dur: 0.18, v: 0.07, filter: 1200 }); tone({ type: 'square', f0: 180, dur: 0.25, v: 0.07, filter: 1200, delay: 0.2 }); },
   };

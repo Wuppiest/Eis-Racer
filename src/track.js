@@ -31,6 +31,17 @@ function setupTrack(def) {
     c.k = angDiff(Math.atan2(a.tz, a.tx), Math.atan2(b.tz, b.tx)) / (8 * DS); // signed curvature (1/m)
     c.slope = (b.h - a.h) / (8 * DS);                                          // dh/ds
   }
+  // glitch "Kreuzungs-Verwechslung": the nearest other piece at the same level, if close enough
+  for (let i = 0; i < NS; i++) {
+    const a = TS[i]; let best = (TRACK_W + 5) * (TRACK_W + 5), bj = -1;
+    for (let j = 0; j < NS; j += 2) {
+      const d = Math.abs(i - j), ring = Math.min(d, NS - d);
+      if (ring * DS < 60 || Math.abs(a.h - TS[j].h) > 1) continue;
+      const dx = a.x - TS[j].x, dz = a.z - TS[j].z, dd = dx * dx + dz * dz;
+      if (dd < best) { best = dd; bj = j; }
+    }
+    a.alt = bj;
+  }
   // other pieces of track crossing this sample: above / below (bridge) or on the same level (flat crossing)
   for (let i = 0; i < NS; i++) {
     const a = TS[i];

@@ -20,6 +20,10 @@ const MAX_AIR = 2.2;      // ... up to this height above the ground
 const MAX_SKIP = 300;     // a short cut may save this much track (m, or 50 % of the lap) and the lap still counts
 const G_AIR = 9.81;
 const BAR_OUT = 1.15;     // barrier band outside the track edge (m)
+// ---------- glitches (bugs that stayed in as features – precise inputs only) ----------
+let simT = 0;             // physics clock
+function glitch(name) { SFX.glitch(); (window.__glitch || (window.__glitch = [])).push(name); }
+function capSpeed(max) { const v = Math.hypot(P.vx, P.vz); if (v > max) { P.vx *= max / v; P.vz *= max / v; } }
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
 const WHEEL_TIME = 0.28;  // seconds to extend / retract
 const ROLL_FRIC = 0.16;   // rolling resistance (m/s²) – less than ice
@@ -119,7 +123,7 @@ function updateParts(dt) {
 // ---------- state ----------
 let state = 'menu';          // menu | countdown | race | finished
 let paused = false;
-const P = { vy: 0, grounded: true, off: false, wheel: 0, wheelSpin: 0, wheelYaw: 0, x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
+const P = { ride: 0, noCeil: false, clipUntil: -9, wheelDownT: -9, wheelPressT: -9, bumpT: -9, yPrev: 0, vy: 0, grounded: true, off: false, wheel: 0, wheelSpin: 0, wheelYaw: 0, x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
 const look = { yaw: 0, pitch: 0 };
 const hook = { state: 'idle', pos: new V3(), target: new V3(), t: 0, dur: 0, hit: false, ropeLen: 0 };
 const race = { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 0, cdStep: 4, wrongT: 0, finishT: 0 };
@@ -146,6 +150,9 @@ function fireHook() {
   if (hook.state === 'flying' || hook.state === 'attached') return;
   const h = aimHit();
   muzzleWorld(hook.pos);
+  hook.snapPending = hook.snapT != null && simT - hook.snapT <= 0.08;
+  // glitch B "Seil-Zieher": head bumped the bridge while hooked onto it, re-fire right after → pulled through the deck
+  if (simT - P.bumpT < 0.1 && state === 'race') { P.bumpT = -9; P.noCeil = true; P.vy = Math.max(P.vy, 9); P.grounded = false; P.ride = 0; race.exempt = true; glitch('seil-zieher'); }
   hook.obj = null;
   if (h) {
     hook.target.copy(h.point); hook.hit = true;
@@ -159,6 +166,8 @@ function fireHook() {
   SFX.fire();
 }
 function releaseHook(auto = false) {
+  // glitch 1 "Seil-Snap": letting go of a taut rope arms a short re-fire window
+  if (!auto && hook.state === 'attached' && Math.hypot(hook.target.x - P.x, hook.target.z - P.z) >= hook.ropeLen - 0.6) hook.snapT = simT;
   if (hook.state === 'attached' || hook.state === 'flying') {
     hook.state = 'retract';
     SFX.release();
@@ -173,8 +182,15 @@ function updateHook(dt) {
     hook.pos.lerpVectors(hook.start, hook.target, k);
     if (k >= 1) {
       if (hook.hit && holding()) {
-        hook.state = 'attached'; hook.fresh = true;
+        hook.state = 'attached'; hook.fresh = true; hook.attachT = simT;
         hook.ropeLen = Math.hypot(hook.target.x - P.x, hook.target.z - P.z);
+        if (hook.snapPending && hook.ropeLen > 0.5) { // Seil-Snap: the new rope snaps tight → kick toward the anchor
+          hook.snapPending = false;
+          hook.chain = simT - (hook.lastSnap || -9) < 1.5 ? (hook.chain || 0) + 1 : 0; hook.lastSnap = simT;
+          const b = 7 / (1 + 0.6 * hook.chain);
+          P.vx += (hook.target.x - P.x) / hook.ropeLen * b; P.vz += (hook.target.z - P.z) / hook.ropeLen * b;
+          capSpeed(60); glitch('seil-snap');
+        }
         SFX.hit();
         for (let i = 0; i < 10; i++) spawnPart(hook.target.x, hook.target.y, hook.target.z, (Math.random() - 0.5) * 5, Math.random() * 4, (Math.random() - 0.5) * 5, 0.5, 0.06);
       } else {
@@ -197,6 +213,8 @@ function updateHook(dt) {
 const _q = { i: 0, f: 0, lat: 0, h: 0, tx: 1, tz: 0, nx: 0, nz: 1, slope: 0, s: 0, k: 0 };
 const _Z = { ax: 0, az: 0, fric: 1, fricAdd: 0, spin: null };
 function physStep(dt) {
+  simT += dt;
+  P.yPrev = P.y;
   if (!paused) updateElements(dt);
   updateHook(dt);
   pulling = false;
@@ -204,7 +222,7 @@ function physStep(dt) {
   const wTarget = wheelsWanted() && state !== 'menu' ? 1 : 0;
   const wPrev = P.wheel;
   P.wheel = clamp(P.wheel + (wTarget ? 1 : -1) * dt / WHEEL_TIME, 0, 1);
-  if (wPrev < 1 && P.wheel === 1) SFX.wheelsDown();
+  if (wPrev < 1 && P.wheel === 1) { SFX.wheelsDown(); P.wheelDownT = simT; }
   if (wTarget !== P.wTgt) { P.wTgt = wTarget; if (state !== 'menu') SFX.wheelsUp(); }
   if (state !== 'race' && state !== 'finished') return;
   const racing = state === 'race';
@@ -225,7 +243,7 @@ function physStep(dt) {
       if (dy > 0) upF = clamp((dy / Math.hypot(dist, dy) - 0.25) / 0.35, 0, 1);
       if (hook.fresh) { // the moment the hook bites: a quick hop
         hook.fresh = false;
-        if (upF > 0 && P.grounded) { P.vy = Math.max(P.vy, JUMP_V * (0.35 + 0.65 * upF)); P.grounded = false; SFX.jump(); }
+        if (upF > 0 && (P.grounded || P.ride)) { P.ride = 0; P.vy = Math.max(P.vy, JUMP_V * (0.35 + 0.65 * upF)); P.grounded = false; SFX.jump(); }
       }
       hook.ropeLen = Math.min(hook.ropeLen, dist);
       pulling = true;
@@ -247,7 +265,7 @@ function physStep(dt) {
   // ice friction + air drag (more braking after the finish)
   const v = Math.hypot(P.vx, P.vz);
   if (v > 1e-4) {
-    const ground = P.grounded ? (P.wheel === 1 ? ROLL_FRIC : FRIC * ICE) * Z.fric + Z.fricAdd + (racing ? 0 : 3.5) : 0; // no friction in the air
+    const ground = P.ride ? 0.05 : P.grounded ? (P.wheel === 1 ? ROLL_FRIC : FRIC * ICE) * Z.fric + Z.fricAdd + (racing ? 0 : 3.5) : 0; // no friction in the air
     const dec = (ground + DRAG * v * v) * dt;
     const nv = Math.max(0, v - dec);
     P.vx *= nv / v; P.vz *= nv / v;
@@ -287,22 +305,69 @@ function physStep(dt) {
   }
   // under a bridge: the deck above is a ceiling (head bump)
   const ceilS = alat <= HW + 1.5 ? TS[_q.i].ceil : null;
-  if (P.grounded && ay <= 0) { P.vy = 0; P.y = groundY; }
+  const barTop = (WORLD.barH || 0.95) + 0.05, OUT = HW + BAR_OUT + FLOE_R;
+  if (P.ride) {
+    // glitch 2 "Bandenreiten": glued onto the barrier top, steering itself through the curves
+    const sp = Math.hypot(P.vx, P.vz), side = P.ride;
+    if (!TS[_q.i][side < 0 ? 'barL' : 'barR'] || _q.h > 0.3 || sp < 7 || P.vy > 0.5) { P.ride = 0; P.grounded = false; }
+    else {
+      const cx = P.x - _q.nx * _q.lat, cz = P.z - _q.nz * _q.lat, rl = side * (HW + 0.55);
+      P.x = cx + _q.nx * rl; P.z = cz + _q.nz * rl;
+      const sg = Math.sign(P.vx * _q.tx + P.vz * _q.tz) || 1;
+      P.vx = _q.tx * sp * sg; P.vz = _q.tz * sp * sg;
+      P.y = _q.h + barTop + 0.02; P.vy = 0; P.grounded = true;
+    }
+  }
+  if (P.ride) { /* handled above */ }
+  else if (P.grounded && ay <= 0) { P.vy = 0; P.y = groundY; }
   else {
     P.vy += ay * dt;
     P.y += P.vy * dt;
-    if (P.y <= groundY) {
-      if (!P.grounded && P.vy < -2.5) land(-P.vy);
-      P.y = groundY; P.vy = 0; P.grounded = true;
+    // glitch 2 entry: coming down exactly onto the top edge of a ground barrier
+    const rel = P.y - _q.h, relPrev = P.yPrev - _q.h, side = Math.sign(_q.lat);
+    if (racing && P.vy < 0 && _q.h < 0.3 && relPrev >= barTop - 0.05 && rel < barTop && rel > barTop - 0.4 &&
+        alat > HW + 0.1 && alat < HW + 1.0 && TS[_q.i][side < 0 ? 'barL' : 'barR'] && Math.hypot(P.vx, P.vz) > 8) {
+      P.ride = side; P.y = _q.h + barTop + 0.02; P.vy = 0; P.grounded = true; glitch('bandenreiten');
+    } else if (P.y <= groundY) {
+      // glitch 5 "Räder-Trampolin": wheels locked in just before touch-down → launched high (even through bridges)
+      if (!P.grounded && P.vy < -3 && P.wheel === 1 && simT - P.wheelDownT < 0.06 && racing) {
+        const vmax = Math.sqrt(2 * G_AIR * Math.max(1, HALL.h - 4.5 - groundY));
+        P.vy = Math.min(Math.max(14, -P.vy * 1.5), vmax); P.y = groundY + 0.02; P.grounded = false; P.noCeil = true;
+        const fx = -Math.sin(P.wheelYaw), fz = -Math.cos(P.wheelYaw); P.vx += fx * 3; P.vz += fz * 3; capSpeed(60);
+        race.exempt = true; glitch('raeder-trampolin');
+      } else {
+        if (!P.grounded && P.vy < -2.5) land(-P.vy);
+        P.y = groundY; P.vy = 0; P.grounded = true; P.noCeil = false;
+      }
     } else P.grounded = false;
-    if (ceilS) { const top = ceilS - 0.8 - 2.1; if (P.y > top) { P.y = top; if (P.vy > 0) { if (P.vy > 3) land(P.vy * 0.5); P.vy = -1; } } }
+    if (ceilS && !P.noCeil) {
+      const top = ceilS - 0.8 - 2.1;
+      if (P.y > top && P.vy > 0) {
+        // glitch A "Decken-Clip": hitting the deck fast near the start / end of the bridge slips you through it
+        if (P.vy > 4.5 && (!tsAt(_q.i - 6).under || !tsAt(_q.i + 6).under) && racing) { P.noCeil = true; P.vy = Math.max(P.vy, 8); race.exempt = true; glitch('decken-clip'); }
+        else {
+          // head bump; hooked onto the bridge itself? → arms glitch B for a moment
+          if (pulling && hook.target.y > ceilS - 2.2 && hook.target.y < ceilS + 2.5) P.bumpT = simT;
+          P.y = top; if (P.vy > 3) land(P.vy * 0.5); P.vy = -1;
+        }
+      } else if (P.y > top) P.y = top;
+    }
+    // through a deck from below: now we belong to the bridge
+    if (P.noCeil && ceilS && P.y > ceilS + 0.15) {
+      const g = deckPiece(P.x, P.z, ceilS);
+      if (g >= 0) { trackQuery(P.x, P.z, g, 40, _q); race.glitchStep = true; lapLogic(P.idx, _q.i); race.glitchStep = false; P.idx = _q.i; }
+    }
   }
   // barriers: only if we are not above them; from inside (on the track) or from outside (infield)
-  const barTop = (WORLD.barH || 0.95) + 0.05, OUT = HW + BAR_OUT + FLOE_R;
-  if (P.y - _q.h < barTop && alat > LIM && alat < OUT) {
+  if (P.y - _q.h < barTop && alat > LIM && alat < OUT && simT > P.clipUntil && !P.ride) {
     const inside = !P.off;
     const sg = Math.sign(_q.lat) * (inside ? 1 : -1), nx = _q.nx * sg, nz = _q.nz * sg; // n points into the barrier
     const pen = inside ? alat - LIM : OUT - alat;
+    const vn0 = P.vx * nx + P.vz * nz, sp0 = Math.hypot(P.vx, P.vz), relY = P.y - _q.h;
+    // glitch E "Wand-Clip": very fast, 30–60° into the wall, in a low hop → you slip through (and maybe onto another piece)
+    if (inside && racing && sp0 > 24 && vn0 / sp0 > 0.5 && vn0 / sp0 < 0.87 && relY > 0.25 && relY < barTop) {
+      P.clipUntil = simT + 0.45; race.exempt = true; glitch('wand-clip');
+    } else {
     P.x -= nx * pen; P.z -= nz * pen;
     const vn = P.vx * nx + P.vz * nz;
     if (vn > 0) {
@@ -313,6 +378,7 @@ function physStep(dt) {
       const cr = nx * vtz - nz * vtx;
       if (P.wheel === 0) P.w += -Math.sign(cr) * Math.min(vn * 0.45, 5) + (Math.random() - 0.5) * vn * 0.1;
       if (vn > 1.5 && P.wall <= 0) impact(vn, P.x + nx * FLOE_R, P.z + nz * FLOE_R, nx, nz);
+    }
     }
   }
   // wheels on the floor: only the nose direction keeps its speed
@@ -326,7 +392,7 @@ function physStep(dt) {
     P.wheelSpin += vf / WHEEL_R * dt;
     P.skid = Math.abs(vl);
   } else P.skid = 0;
-  P.off = Math.abs(_q.lat) > (LIM + OUT) / 2;
+  P.off = P.ride ? false : Math.abs(_q.lat) > (LIM + OUT) / 2;
   // hall walls
   const hm = FLOE_R + 0.6;
   if (P.x < HALL.x0 + hm) { P.x = HALL.x0 + hm; if (P.vx < 0) P.vx *= -0.3; }
@@ -366,14 +432,43 @@ function lapLogic(prev, cur) {
     race.laps.push(lt); race.lapStart = race.t;
     if (done >= LAPS) finishRace();
     else { SFX.lap(); toast(`RUNDE <b>${done + 1}/${LAPS}</b> &nbsp; ${fmt(lt)}`, 2200); }
-  } else if (cur > NS * 0.75 && prev < NS * 0.25 && race.ep == null) race.backs++; // backwards over the line (not by a jump)
+  } else if (cur > NS * 0.75 && prev < NS * 0.25 && race.ep == null && !race.glitchStep) race.backs++; // backwards over the line (not by a jump)
 }
 function checkCut(cur) {
+  if (race.exempt) { race.exempt = false; return; } // a glitch skip is a feature, not a short cut
   // landing a little behind = backwards; anything else counts as a jump forward (even across the whole hall)
   let d = cur - race.ep; if (d < -NS * 0.15) d += NS; else if (d > NS * 0.85) d -= NS;
   const saved = d * DS - race.flown;
   if (saved > race.skip) race.skip = saved;
   if (saved > Math.max(MAX_SKIP, TLEN * 0.5)) toast('✂️ ABKÜRZUNG ZU GROSS – diese Runde zählt nicht!', 2400, true);
+}
+// the bridge deck right above / around us (after slipping through it)
+function deckPiece(x, z, h) {
+  let best = 1e18, bi = -1;
+  for (let i = 0; i < NS; i++) {
+    const s = TS[i];
+    if (Math.abs(s.h - h) > 0.6) continue;
+    const dx = x - s.x, dz = z - s.z, dd = dx * dx + dz * dz;
+    if (dd < best) { best = dd; bi = i; }
+  }
+  return best < (HW + 1.5) * (HW + 1.5) ? bi : -1;
+}
+// glitch C "Kreuzungs-Verwechslung": a quick wheel tap where another piece is close → the game puts you on it
+function tryCrossSwap() {
+  if (state !== 'race' || P.ride) return;
+  const a = TS[P.idx], j = a.alt;
+  if (j == null || j < 0) return;
+  let d = j - P.idx; if (d < 0) d += NS;
+  if (d <= 0 || d > NS * 0.7) return; // only forward
+  const b = TS[j];
+  if (Math.hypot(P.x - b.x, P.z - b.z) > TRACK_W + 1 || Math.abs(P.y - b.h) > 1.6) return;
+  trackQuery(P.x, P.z, j, 40, _q);
+  if (Math.abs(_q.lat) > LIM - 0.3) { const m = Math.abs(_q.lat) - (LIM - 0.3), sg = Math.sign(_q.lat); P.x -= _q.nx * sg * m; P.z -= _q.nz * sg * m; trackQuery(P.x, P.z, j, 40, _q); }
+  const sp = Math.max(Math.hypot(P.vx, P.vz), 6);
+  P.vx = _q.tx * sp; P.vz = _q.tz * sp; P.off = false;
+  race.glitchStep = true; lapLogic(P.idx, _q.i); race.glitchStep = false;
+  P.idx = _q.i; race.ep = null;
+  glitch('kreuzungs-verwechslung');
 }
 // nearest piece of track below the floe (after hopping across the infield)
 function nearestPiece(x, z, y) {
@@ -405,14 +500,14 @@ function impact(vn, x, z, nx, nz) {
 // ---------- race flow ----------
 function placeAtStart() {
   const s = WORLD.start;
-  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0, wheel: 0, wheelSpin: 0, skid: 0, vy: 0, grounded: true, off: false });
+  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0, wheel: 0, wheelSpin: 0, skid: 0, vy: 0, grounded: true, off: false, ride: 0, noCeil: false, clipUntil: -9, wheelDownT: -9, bumpT: -9 });
 }
 function resetRace() {
   placeAtStart();
   look.yaw = WORLD.start.yaw; look.pitch = -0.04;
   hook.state = 'idle';
   ELEM.t = 0;
-  Object.assign(race, { skip: 0, ep: null, flown: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
+  Object.assign(race, { exempt: false, glitchStep: false, skip: 0, ep: null, flown: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
   WORLD.lights.forEach((m) => m.color.set('#3a0d0d'));
   state = 'countdown';
   setHud(true);
@@ -611,7 +706,7 @@ document.addEventListener('mouseup', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (touchMode) setTouch(false);
-  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (!e.repeat && playing()) { aimWheels(); holdSpace = true; } return; }
+  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (!e.repeat && playing()) { aimWheels(); holdSpace = true; P.wheelPressT = simT; } return; }
   if (e.code === 'KeyE' && !e.repeat) { if (playing()) { holdKey = true; fireHook(); } }
   else if (e.code === 'KeyR' && !e.repeat && (state === 'race' || state === 'countdown' || state === 'finished') && !paused) startRace();
   else if (e.code === 'KeyP' && !e.repeat) { if (paused && !settingsFromMenu) resumeGame(); else pauseGame(); }
@@ -619,7 +714,7 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('keyup', (e) => {
   if (e.code === 'KeyE' && holdKey) { holdKey = false; if (!holding()) releaseHook(); }
-  if (e.code === 'Space') { e.preventDefault(); holdSpace = false; }
+  if (e.code === 'Space') { e.preventDefault(); if (holdSpace && simT - P.wheelPressT < 0.12) tryCrossSwap(); holdSpace = false; }
 });
 window.addEventListener('blur', () => { holdMouse = holdKey = holdTouch = holdSpace = holdWheelTouch = false; if (hook.state === 'attached') releaseHook(); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -679,8 +774,8 @@ const endHook = (e) => {
 $('tHook').addEventListener('touchend', endHook, { passive: false });
 $('tHook').addEventListener('touchcancel', endHook, { passive: false });
 const wheelsBtn = $('tWheels');
-wheelsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!playing()) return; aimWheels(); holdWheelTouch = true; wheelsBtn.classList.add('on'); }, { passive: false });
-const endWheels = (e) => { e.preventDefault(); holdWheelTouch = false; wheelsBtn.classList.remove('on'); };
+wheelsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!playing()) return; aimWheels(); holdWheelTouch = true; P.wheelPressT = simT; wheelsBtn.classList.add('on'); }, { passive: false });
+const endWheels = (e) => { e.preventDefault(); if (holdWheelTouch && simT - P.wheelPressT < 0.12) tryCrossSwap(); holdWheelTouch = false; wheelsBtn.classList.remove('on'); };
 wheelsBtn.addEventListener('touchend', endWheels, { passive: false });
 wheelsBtn.addEventListener('touchcancel', endWheels, { passive: false });
 $('tPause').addEventListener('touchstart', (e) => { e.preventDefault(); pauseGame(); }, { passive: false });

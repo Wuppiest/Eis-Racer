@@ -399,6 +399,7 @@ function buildBarriers(D, G, theme) {
       const s = tsAt(i);
       const ground = s.h < 0.35 && i < NS;
       const ok = ground && !edgeBlocked(s, sd);
+      if (i < NS) s[sd < 0 ? 'barL' : 'barR'] = ok; // barrier-riding glitch needs to know where barriers are
       // other barrier styles: 1 m segments
       if (ok && style && i % 2 === 0) {
         const o = new Obj(), a = tp(s, sd * (HW + style.off), 0), b = tp(tsAt(i + 2), sd * (HW + style.off), 0);
