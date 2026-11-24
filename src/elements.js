@@ -447,5 +447,5 @@ function updateElements(dt) {
   for (const el of ELEM.list) if (el.update) el.update(ELEM.t, dt);
 }
 // floor zones: add forces / change friction (Z = { ax, az, fric, fricAdd, spin })
-function elementZones(q, Z) { for (const el of ELEM.list) if (el.zone) el.zone(q, Z); }
+function elementZones(q, Z) { for (const el of ELEM.list) if (el.zone && (P.grounded || el.type === 'fan')) el.zone(q, Z); }
 function elementCollide() { for (const el of ELEM.list) if (el.collide) el.collide(); }

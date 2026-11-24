@@ -1111,6 +1111,7 @@ const BARRIER = {
 };
 function buildBarriers(D, G, theme) {
   const style = BARRIER[theme.barrier];
+  WORLD.barH = style ? style.h : 0.95;
   const tireStack = (o, x, z, top) => {
     for (let k = 0; k < 3; k++) o.cyl(0.5, 0.3, x, 0.15 + k * 0.3, z, PAL.tire, { seg: 9, jit: 0.06 });
     o.cyl(0.506, 0.14, x, 0.75, z, top, { seg: 9 });
@@ -2324,7 +2325,7 @@ function updateElements(dt) {
   for (const el of ELEM.list) if (el.update) el.update(ELEM.t, dt);
 }
 // floor zones: add forces / change friction (Z = { ax, az, fric, fricAdd, spin })
-function elementZones(q, Z) { for (const el of ELEM.list) if (el.zone) el.zone(q, Z); }
+function elementZones(q, Z) { for (const el of ELEM.list) if (el.zone && (P.grounded || el.type === 'fan')) el.zone(q, Z); }
 function elementCollide() { for (const el of ELEM.list) if (el.collide) el.collide(); }
 
 // ============================================================
@@ -2635,6 +2636,11 @@ const REST = 0.32;        // bounce off the barriers
 const ANG_DAMP = 1.1;     // spin damping
 const HOOK_RANGE = 80, HOOK_SPEED = 170, RETRACT_SPEED = 110;
 let LIM = 5.2; // lateral limit for the floe center (set per map)
+// hopping: a rope to a high anchor lifts the floe a little (much weaker than the forward pull)
+const LIFT_K = 0.9;       // share of the upward rope component that actually lifts (max net lift stays well below the forward pull)
+const MAX_AIR = 2.2;      // lift fades out toward this height above the ground
+const G_AIR = 9.81;
+const BAR_OUT = 1.15;     // barrier band outside the track edge (m)
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
 const WHEEL_TIME = 0.28;  // seconds to extend / retract
 const ROLL_FRIC = 0.16;   // rolling resistance (m/s²) – less than ice
@@ -2734,7 +2740,7 @@ function updateParts(dt) {
 // ---------- state ----------
 let state = 'menu';          // menu | countdown | race | finished
 let paused = false;
-const P = { wheel: 0, wheelSpin: 0, wheelYaw: 0, x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
+const P = { vy: 0, grounded: true, off: false, wheel: 0, wheelSpin: 0, wheelYaw: 0, x: 0, z: 0, y: 0, vx: 0, vz: 0, yaw: 0, w: 0, idx: 0, wraps: 0, tiltX: 0, tiltZ: 0, ax: 0, az: 0, wall: 0 };
 const look = { yaw: 0, pitch: 0 };
 const hook = { state: 'idle', pos: new V3(), target: new V3(), t: 0, dur: 0, hit: false, ropeLen: 0 };
 const race = { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 0, cdStep: 4, wrongT: 0, finishT: 0 };
@@ -2823,7 +2829,7 @@ function physStep(dt) {
   if (wTarget !== P.wTgt) { P.wTgt = wTarget; if (state !== 'menu') SFX.wheelsUp(); }
   if (state !== 'race' && state !== 'finished') return;
   const racing = state === 'race';
-  let ax = 0, az = 0;
+  let ax = 0, az = 0, lift = 0;
   let ux = 0, uz = 0, dist = 0;
   if (hook.state === 'attached') {
     const dx = hook.target.x - P.x, dz = hook.target.z - P.z;
@@ -2834,6 +2840,9 @@ function physStep(dt) {
       const vr = P.vx * ux + P.vz * uz; // speed toward the anchor
       const pull = PULL * clamp(dist / 6, 0.4, 1) * clamp(1 - vr / REEL_MAX, 0, 1.3);
       ax += ux * pull; az += uz * pull;
+      // anchor above you (ceiling, trusses ...): a bit of lift
+      const dy = hook.target.y - (P.y + FLOE_TOP + 0.9);
+      if (dy > 0) lift = PULL * clamp(dist / 6, 0.4, 1) * (dy / Math.hypot(dist, dy)) * LIFT_K;
       hook.ropeLen = Math.min(hook.ropeLen, dist);
       pulling = true;
       // the pull also swings the floe's nose toward the rope
@@ -2844,7 +2853,7 @@ function physStep(dt) {
     }
   }
   trackQuery(P.x, P.z, P.idx, 40, _q);
-  ax -= GRAV * _q.slope * _q.tx; az -= GRAV * _q.slope * _q.tz;
+  if (P.grounded && !P.off) { ax -= GRAV * _q.slope * _q.tx; az -= GRAV * _q.slope * _q.tz; }
   // floor zones: boost, belts, turntables, wind, slush, blank ice
   const Z = _Z; Z.ax = 0; Z.az = 0; Z.fric = 1; Z.fricAdd = 0; Z.spin = null;
   elementZones(_q, Z);
@@ -2854,7 +2863,8 @@ function physStep(dt) {
   // ice friction + air drag (more braking after the finish)
   const v = Math.hypot(P.vx, P.vz);
   if (v > 1e-4) {
-    const dec = ((P.wheel === 1 ? ROLL_FRIC : FRIC * ICE) * Z.fric + Z.fricAdd + DRAG * v * v + (racing ? 0 : 3.5)) * dt;
+    const ground = P.grounded ? (P.wheel === 1 ? ROLL_FRIC : FRIC * ICE) * Z.fric + Z.fricAdd + (racing ? 0 : 3.5) : 0; // no friction in the air
+    const dec = (ground + DRAG * v * v) * dt;
     const nv = Math.max(0, v - dec);
     P.vx *= nv / v; P.vz *= nv / v;
   }
@@ -2871,17 +2881,38 @@ function physStep(dt) {
     const dx = hook.target.x - P.x, dz = hook.target.z - P.z, d = Math.hypot(dx, dz);
     if (d > hook.ropeLen) { P.x = hook.target.x - dx / d * hook.ropeLen; P.z = hook.target.z - dz / d * hook.ropeLen; }
   }
-  // moving obstacles, bumpers ...
-  elementCollide();
-  // stay on the track: barriers on both sides
+  // moving obstacles, bumpers ... (you can hop over them)
+  if (P.y - _q.h < 1.3) elementCollide();
+  // which piece of track are we over? (after a hop it can be a different one)
   trackQuery(P.x, P.z, P.idx, 40, _q);
-  if (_q.i < NS * 0.25 && P.idx > NS * 0.75) P.wraps++;
-  else if (_q.i > NS * 0.75 && P.idx < NS * 0.25) P.wraps--;
+  if (Math.abs(_q.lat) > HW + 3) {
+    const g = nearestPiece(P.x, P.z, P.y);
+    if (g >= 0 && g !== _q.i) trackQuery(P.x, P.z, g, 40, _q);
+  }
+  lapLogic(P.idx, _q.i);
   P.idx = _q.i;
   P.wall = Math.max(0, P.wall - dt);
-  if (Math.abs(_q.lat) > LIM) {
-    const sg = Math.sign(_q.lat), nx = _q.nx * sg, nz = _q.nz * sg;
-    const pen = Math.abs(_q.lat) - LIM;
+  // vertical: ground under the floe = deck / track, or the hall floor beside it
+  const alat = Math.abs(_q.lat);
+  const groundY = alat <= HW + 0.7 ? _q.h : 0;
+  const fade = clamp(1 - Math.pow(Math.max(0, P.y - groundY) / MAX_AIR, 3), 0, 1);
+  const ay = lift * fade - G_AIR;
+  if (P.grounded && ay <= 0) { P.vy = 0; P.y = groundY; }
+  else {
+    P.vy += ay * dt; P.vy *= 1 - 0.4 * dt;
+    if (P.vy > 0 && P.y - groundY > 1.6) P.vy *= Math.exp(-5 * dt); // soft ceiling: no big flights
+    P.y += P.vy * dt;
+    if (P.y <= groundY) {
+      if (!P.grounded && P.vy < -2.5) land(-P.vy);
+      P.y = groundY; P.vy = 0; P.grounded = true;
+    } else P.grounded = false;
+  }
+  // barriers: only if we are not above them; from inside (on the track) or from outside (infield)
+  const barTop = (WORLD.barH || 0.95) + 0.05, OUT = HW + BAR_OUT + FLOE_R;
+  if (P.y - _q.h < barTop && alat > LIM && alat < OUT) {
+    const inside = !P.off;
+    const sg = Math.sign(_q.lat) * (inside ? 1 : -1), nx = _q.nx * sg, nz = _q.nz * sg; // n points into the barrier
+    const pen = inside ? alat - LIM : OUT - alat;
     P.x -= nx * pen; P.z -= nz * pen;
     const vn = P.vx * nx + P.vz * nz;
     if (vn > 0) {
@@ -2896,7 +2927,7 @@ function physStep(dt) {
   }
   // wheels on the floor: only the nose direction keeps its speed
   if (P.wheel > 0) P.w = 0; // wheels out: the floe can't spin, so the wheels keep their direction
-  if (P.wheel === 1) {
+  if (P.wheel === 1 && P.grounded) {
     const fx = -Math.sin(P.wheelYaw), fz = -Math.cos(P.wheelYaw);
     const vf = P.vx * fx + P.vz * fz, vl = P.vx * -fz + P.vz * fx;
     const vl2 = vl * Math.exp(-SIDE_GRIP * dt);
@@ -2905,28 +2936,57 @@ function physStep(dt) {
     P.wheelSpin += vf / WHEEL_R * dt;
     P.skid = Math.abs(vl);
   } else P.skid = 0;
+  P.off = Math.abs(_q.lat) > (LIM + OUT) / 2;
+  // hall walls
+  const hm = FLOE_R + 0.6;
+  if (P.x < HALL.x0 + hm) { P.x = HALL.x0 + hm; if (P.vx < 0) P.vx *= -0.3; }
+  if (P.x > HALL.x1 - hm) { P.x = HALL.x1 - hm; if (P.vx > 0) P.vx *= -0.3; }
+  if (P.z < HALL.z0 + hm) { P.z = HALL.z0 + hm; if (P.vz < 0) P.vz *= -0.3; }
+  if (P.z > HALL.z1 - hm) { P.z = HALL.z1 - hm; if (P.vz > 0) P.vz *= -0.3; }
   P.w *= Math.exp(-ANG_DAMP * dt);
   P.yaw += P.w * dt;
-  P.y = _q.h;
   // visual tilt from acceleration
   P.ax = damp(P.ax, ax, 6, dt); P.az = damp(P.az, az, 6, dt);
 
   if (racing) {
     race.t += dt;
-    const prog = P.wraps * TLEN + _q.s;
-    const done = Math.floor(prog / TLEN);
-    if (done > race.lapDone) {
-      race.lapDone = done;
-      const lt = race.t - race.lapStart;
-      race.laps.push(lt); race.lapStart = race.t;
-      if (done >= LAPS) finishRace();
-      else { SFX.lap(); toast(`RUNDE <b>${done + 1}/${LAPS}</b> &nbsp; ${fmt(lt)}`, 2200); }
-    }
     // wrong way?
     const fwd = P.vx * _q.tx + P.vz * _q.tz;
     race.wrongT = fwd < -3 ? race.wrongT + dt : Math.max(0, race.wrongT - dt * 2);
     if (race.wrongT > 1.2 && race.wrongT - dt <= 1.2) { toast('⚠️ FALSCHE RICHTUNG!', 1800, true); SFX.wrong(); }
   }
+}
+// laps: crossing the line only counts if every quarter of the lap was visited (small corner cuts are fine)
+function lapLogic(prev, cur) {
+  if (state !== 'race') return;
+  race.vis |= 1 << Math.min(3, Math.floor((cur / NS) * 4));
+  if (cur < NS * 0.25 && prev > NS * 0.75) {           // forward over the line
+    if (race.backs > 0) { race.backs--; return; }
+    if (!race.started) { race.started = true; race.vis = 1; return; }
+    if (race.vis !== 15) { toast('✂️ ABKÜRZUNG – Runde zählt nicht!', 2200, true); SFX.wrong(); race.vis = 1; return; }
+    race.vis = 1;
+    const done = ++race.lapDone, lt = race.t - race.lapStart;
+    race.laps.push(lt); race.lapStart = race.t;
+    if (done >= LAPS) finishRace();
+    else { SFX.lap(); toast(`RUNDE <b>${done + 1}/${LAPS}</b> &nbsp; ${fmt(lt)}`, 2200); }
+  } else if (cur > NS * 0.75 && prev < NS * 0.25) race.backs++; // backwards over the line
+}
+// nearest piece of track below the floe (after hopping across the infield)
+function nearestPiece(x, z, y) {
+  let best = 1e18, bi = -1;
+  for (let i = 0; i < NS; i += 2) {
+    const s = TS[i];
+    if (s.h > y + 0.5) continue;
+    const dx = x - s.x, dz = z - s.z, dd = dx * dx + dz * dz;
+    if (dd < best) { best = dd; bi = i; }
+  }
+  return bi;
+}
+function land(v) {
+  const k = clamp(v / 9, 0, 1);
+  SFX.bump(k * 0.7);
+  shake = Math.max(shake, 0.2 + k * 0.7);
+  for (let i = 0; i < 6 + k * 16; i++) { const a = Math.random() * TAU; spawnPart(P.x + Math.cos(a) * FLOE_R, P.y + 0.1, P.z + Math.sin(a) * FLOE_R, Math.cos(a) * 3, 1 + Math.random() * 2, Math.sin(a) * 3, 0.6, 0.05); }
 }
 function impact(vn, x, z, nx, nz) {
   P.wall = 0.25;
@@ -2941,14 +3001,14 @@ function impact(vn, x, z, nx, nz) {
 // ---------- race flow ----------
 function placeAtStart() {
   const s = WORLD.start;
-  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0, wheel: 0, wheelSpin: 0, skid: 0 });
+  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0, wheel: 0, wheelSpin: 0, skid: 0, vy: 0, grounded: true, off: false });
 }
 function resetRace() {
   placeAtStart();
   look.yaw = WORLD.start.yaw; look.pitch = -0.04;
   hook.state = 'idle';
   ELEM.t = 0;
-  Object.assign(race, { t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
+  Object.assign(race, { vis: 0, started: false, backs: 0, t: 0, lapStart: 0, lapDone: 0, laps: [], cd: 3.9, cdStep: 4, wrongT: 0, finishT: 0 });
   WORLD.lights.forEach((m) => m.color.set('#3a0d0d'));
   state = 'countdown';
   setHud(true);

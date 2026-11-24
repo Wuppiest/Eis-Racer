@@ -387,6 +387,7 @@ const BARRIER = {
 };
 function buildBarriers(D, G, theme) {
   const style = BARRIER[theme.barrier];
+  WORLD.barH = style ? style.h : 0.95;
   const tireStack = (o, x, z, top) => {
     for (let k = 0; k < 3; k++) o.cyl(0.5, 0.3, x, 0.15 + k * 0.3, z, PAL.tire, { seg: 9, jit: 0.06 });
     o.cyl(0.506, 0.14, x, 0.75, z, top, { seg: 9 });

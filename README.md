@@ -29,8 +29,13 @@ Wird beim ersten Antippen automatisch erkannt (am besten im Querformat). Sobald 
 
 Das Fadenkreuz leuchtet **türkis**, wenn der Haken etwas treffen würde (Reichweite 80 m), und **orange**, solange du eingehakt bist.
 
+### Hüpfen
+Hängt der Haken hoch über dir (Decke, Fachwerk, Banner, hohe Pfosten), zieht dich das Seil auch etwas nach oben. Damit kannst du über Kurvenecken und Banden hüpfen. Der Zug nach oben ist deutlich schwächer als der nach vorne und endet bei gut 2 m Höhe. Weit entfernte Anker heben dich kaum an.
+
 ## Regeln
 - 3 Runden auf Zeit. Die Uhr startet bei „LOS!“.
+- Kleine Abkürzungen über Ecken sind erlaubt. Wer ein ganzes Viertel der Runde überspringt, bekommt die Runde nicht gezählt („Abkürzung“).
+- Wer neben der Strecke landet, kommt per Haken und Sprung wieder zurück.
 - Unten in der Mitte stehen klein die Geschwindigkeit, die Runde und die Zeit.
 - Bestzeit und beste Runde werden im Browser gespeichert.
 
