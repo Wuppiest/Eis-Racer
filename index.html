@@ -2715,6 +2715,13 @@ function glitch(name) {
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
   clearTimeout(glitchTimer); glitchTimer = setTimeout(() => el.classList.remove('show'), 1800);
 }
+function bounceUp() {
+  const g = P.y;
+  const vmax = Math.sqrt(2 * G_AIR * Math.max(1, HALL.h - 4.5 - g));
+  P.vy = Math.min(14, vmax); P.y = g + 0.02; P.grounded = false; P.noCeil = true; P.ride = 0;
+  const fx = -Math.sin(P.wheelYaw), fz = -Math.cos(P.wheelYaw); P.vx += fx * 3; P.vz += fz * 3; capSpeed(60);
+  race.exempt = true; shake = Math.max(shake, 0.6); SFX.bump(0.6);
+}
 function capSpeed(max) { const v = Math.hypot(P.vx, P.vz); if (v > max) { P.vx *= max / v; P.vz *= max / v; } }
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
 const WHEEL_TIME = 0.28;  // seconds to extend / retract
@@ -2847,6 +2854,9 @@ function fireHook(forced = null) { // forced: a point to shoot at (admin test sc
   // glitch B "Seil-Zieher": head bumped the bridge while hooked onto it, re-fire right after → pulled through the deck
   if (simT - P.bumpT < 0.35 && state === 'race') { P.bumpT = -9; P.noCeil = true; P.vy = Math.max(P.vy, 9); P.grounded = false; P.ride = 0; race.exempt = true; glitch('seil-zieher'); }
   hook.obj = null;
+  // glitch 5 "Räder-Trampolin": wheels still extending + hook shot steeply down at the floor right below you
+  hook.slamArmed = !!h && state === 'race' && wheelsWanted() && P.wheel > 0 && P.wheel < 1 &&
+    h.point.y < P.y + 0.5 && Math.hypot(h.point.x - P.x, h.point.z - P.z) < 4.5;
   if (h) {
     hook.target.copy(h.point); hook.hit = true;
     if (h.object.userData.dyn) { hook.obj = h.object; hook.local = h.object.worldToLocal(h.point.clone()); }
@@ -2876,6 +2886,11 @@ function updateHook(dt) {
     if (k >= 1) {
       if (hook.hit && holding()) {
         hook.state = 'attached'; hook.fresh = true; hook.attachT = simT;
+        if (hook.slamArmed) { // yanked into the floor → bounce
+          hook.slamArmed = false; hook.fresh = false;
+          if (P.grounded) bounceUp(); else { P.vy = -18; P.slam = true; }
+          hook.state = 'retract'; glitch('raeder-trampolin');
+        }
         hook.ropeLen = Math.hypot(hook.target.x - P.x, hook.target.z - P.z);
         if (hook.snapPending && hook.ropeLen > 0.5) { // Seil-Snap: the new rope snaps tight → kick toward the anchor
           hook.snapPending = false;
@@ -3024,13 +3039,9 @@ function physStep(dt) {
         alat > HW + 0.05 && alat < HW + 1.05 && TS[_q.i][side < 0 ? 'barL' : 'barR'] && Math.hypot(P.vx, P.vz) > 8) {
       P.ride = side; P.y = _q.h + barTop + 0.02; P.vy = 0; P.grounded = true; glitch('bandenreiten');
     } else if (P.y <= groundY) {
-      // glitch 5 "Räder-Trampolin": wheels locked in just before touch-down → launched high (even through bridges)
-      if (!P.grounded && P.vy < -2 && wheelsWanted() && simT - P.wheelPressT < 0.5 && racing) {
-        const vmax = Math.sqrt(2 * G_AIR * Math.max(1, HALL.h - 4.5 - groundY));
-        P.vy = Math.min(Math.max(14, -P.vy * 1.5), vmax); P.y = groundY + 0.02; P.grounded = false; P.noCeil = true;
-        const fx = -Math.sin(P.wheelYaw), fz = -Math.cos(P.wheelYaw); P.vx += fx * 3; P.vz += fz * 3; capSpeed(60);
-        race.exempt = true; glitch('raeder-trampolin');
-      } else {
+      // glitch 5 "Räder-Trampolin": slammed into the floor by the hook → bounce up high (even through bridges)
+      if (P.slam && racing) { P.slam = false; P.y = groundY; bounceUp(); }
+      else {
         if (!P.grounded && P.vy < -2.5) land(-P.vy);
         P.y = groundY; P.vy = 0; P.grounded = true; P.noCeil = false;
       }
@@ -3322,15 +3333,17 @@ const ADMIN_RUN = {
     ]];
   },
   'raeder-trampolin'() {
-    const i = P.idx; adminPlace(i, 0, 0, 10);
-    const C = () => ceilPt(tsAt(P.idx + 26));
+    let i = adminFind((s) => s.h < 0.3 && !s.under && noElemNear(s.i, 50));
+    if (i < 0) i = P.idx;
+    adminPlace(i, 0, 0, 10);
+    const F = () => { const t = tsAt(P.idx + 4); return new V3(t.x, t.h, t.z); }; // floor right in front
+    const Fnow = () => (DEMO.pt = F());
     return ['Räder-Trampolin', [
-      D.note('Anlauf'), D.wait(0.4), D.aim(C, 'Decke vor dir anvisieren'), D.wait(0.25), D.hook(C, 'E drücken – Sprung'), D.until(() => hook.state === 'attached', 'Haken greift', 1.5),
-      D.until(() => P.vy < 0.5 && P.y - _q.h > 1, 'hochziehen lassen'), D.hookUp('Scheitelpunkt: E loslassen'),
-      D.until(() => P.vy < 0 && timeToLand() < 0.35, 'fallen …'),
-      D.wheels('Leertaste drücken & HALTEN (max. 0,5 s vor der Landung)'),
-      D.until(() => P.vy > 5 || (P.grounded && P.vy === 0 && simT - P.wheelPressT > 0.6), 'Landung → Trampolin!'),
-      D.wait(1.8, 'Flug (geht auch durch Brücken)'), D.wheelsUp(),
+      D.note('Anlauf'), D.wait(0.5), D.aim(F, 'steil nach unten auf den Boden vor dir zielen'), D.wait(0.2),
+      D.wheels('Leertaste drücken – Räder fahren aus (0,28 s)'), D.wait(0.1),
+      D.fn(Fnow), D.hook(F, 'während sie ausfahren: E – Haken in den Boden'),
+      D.until(() => P.vy > 5, 'reißt dich in den Boden → Abprall!', 1.5),
+      D.hookUp(), D.wheelsUp(), D.wait(2, 'Flug (geht auch durch Brücken)'),
     ]];
   },
   'doppelbumper'() {
@@ -3451,7 +3464,7 @@ function impact(vn, x, z, nx, nz) {
 // ---------- race flow ----------
 function placeAtStart() {
   const s = WORLD.start;
-  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0, wheel: 0, wheelSpin: 0, skid: 0, vy: 0, grounded: true, off: false, ride: 0, noCeil: false, clipUntil: -9, wheelDownT: -9, bumpT: -9 });
+  Object.assign(P, { x: s.x, z: s.z, y: 0, vx: 0, vz: 0, yaw: s.yaw, w: 0, idx: s.idx, wraps: -1, ax: 0, az: 0, wall: 0, wheel: 0, wheelSpin: 0, skid: 0, vy: 0, grounded: true, off: false, slam: false, ride: 0, noCeil: false, clipUntil: -9, wheelDownT: -9, bumpT: -9 });
 }
 function resetRace() {
   placeAtStart();

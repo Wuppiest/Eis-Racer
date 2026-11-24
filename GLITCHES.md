@@ -6,7 +6,7 @@ Bugs, die als Feature im Spiel geblieben sind. Ein geschaffter Trick macht ein k
 |---|---|---|
 | **Seil-Snap** | Kurzer Tempo-Schub Richtung Anker. Mehrmals hintereinander möglich, jedes Mal schwächer. | Seil **straff** halten, loslassen und innerhalb von **0,12 s** neu schießen. |
 | **Bandenreiten** | Du rutschst *auf* der Bande, fast ohne Reibung, und lenkst in Kurven automatisch mit. | Mit über **29 km/h** aus einem Sprung **genau auf der Oberkante** einer Bande landen (±0,5 m). Endet bei unter 18 km/h, am Bandenende oder beim nächsten Sprung. |
-| **Räder-Trampolin** | Statt Landung wirst du hoch geschleudert (bis ~10 m), auch **durch Brücken** hindurch auf die Fahrbahn darüber. | Im Fallen die **Räder-Taste höchstens 0,5 s vor der Landung drücken und halten**. |
+| **Räder-Trampolin** | Der Haken reißt dich in den Boden, du prallst ab und fliegst hoch (bis ~10 m), auch **durch Brücken** hindurch auf die Fahrbahn darüber. | **Leertaste drücken** und, **während die Räder ausfahren** (0,28 s), den Haken **steil nach unten** auf den Boden direkt vor/unter dir schießen (max. 4,5 m entfernt). Geht am Boden und in der Luft. |
 | **Doppelbumper** | Der Bumper-Kick zählt 2,6-fach, du wirst extrem weggeschossen. | Den Bumper (oder direkt daneben) **anhaken**, sodass der Haken **höchstens 0,6 s** vor dem Aufprall greift. |
 | **Decken-Clip** | Du rutschst von unten durch die Brücke und landest oben auf ihr. | Unter einer Brücke **in den ersten oder letzten 8 m** mit Schwung nach oben gegen die Unterseite springen. |
 | **Seil-Zieher** | Du wirst durch die Brücke nach oben gezogen. | Die Brücke **über dir** anhaken, hochspringen, mit dem Kopf anstoßen und innerhalb von **0,35 s** loslassen und neu schießen. |
