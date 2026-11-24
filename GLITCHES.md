@@ -15,7 +15,8 @@ Bugs, die als Feature im Spiel geblieben sind. Ein geschaffter Trick macht ein k
 
 ## Test-Werkzeuge (später wieder entfernen)
 - **Bug-Anzeige:** Ein lila Banner zeigt den Namen eines geschafften Tricks.
-- **Admin-Menü** im Pause-Menü (Esc / ❚❚): Ein Knopf pro Trick setzt dich an die nächste passende Stelle der Strecke und führt ihn automatisch vor. Gibt es auf der Strecke keine Stelle dafür, kommt eine Meldung. Bestzeiten werden in diesem Rennen nicht gespeichert.
+- **Admin-Menü** im Pause-Menü (Esc / ❚❚): Ein Knopf pro Trick startet eine **Demo mit Anlauf** an der nächsten passenden Stelle der Strecke, in **Zeitlupe (0,4×)**. Links zeigt eine Anzeige jede Eingabe (E/Maus, Leertaste, Zielen leuchten auf) mit Zeitstempel und Abstand zur vorherigen Eingabe. Die Kamera schwenkt sichtbar auf die Ziele. Esc bricht ab. Gibt es auf der Strecke keine Stelle, kommt eine Meldung. Bestzeiten werden in diesem Rennen nicht gespeichert.
+- Beim Bandenreiten hilft die Demo bei der Landung etwas nach (Richtung und Tempo), damit sie zuverlässig klappt.
 - Beides hängt am Schalter `GLITCH_DEBUG` in `src/game.js`.
 
 | Trick | Möglich auf |

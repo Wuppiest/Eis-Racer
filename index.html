@@ -60,6 +60,20 @@
   #adminGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
   #adminGrid button { padding: 8px 10px; border: 0; border-radius: 9px; background: #a24bd8; color: #fff; font-family: inherit; font-weight: 800; font-size: 14px; cursor: pointer; }
   #adminGrid button:hover { filter: brightness(1.15); }
+  /* TEST ONLY: demo input display */
+  #demoBox { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 340px; padding: 12px 14px; border-radius: 14px; background: rgba(20,10,36,.78); border: 2px solid #a24bd8; transition: opacity .6s; }
+  #demoBox.fade { opacity: 0; transition-delay: 3s; }
+  #dTitle { font-size: 17px; font-weight: 900; color: #e2c4ff; }
+  .dSub { font-size: 12px; font-weight: 700; opacity: .7; margin: 2px 0 10px; }
+  .dKeys { display: flex; gap: 6px; margin-bottom: 10px; }
+  .dKeys span { flex: 1; text-align: center; padding: 8px 4px; border-radius: 9px; background: #2c3150; border-bottom: 4px solid #1a1d30; font-size: 14px; font-weight: 900; transition: background .05s, transform .05s; }
+  .dKeys span.on { background: #ffd21f; color: #1d2230; border-bottom-color: #a5860f; transform: translateY(2px); }
+  #kAim.on { background: #4ff2ff; border-bottom-color: #1a8aa0; }
+  #dLog { font-size: 13px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+  #dLog .in { color: #ffe066; font-weight: 800; }
+  #dLog .note { color: #cfd6ff; opacity: .85; }
+  #dLog b { display: inline-block; min-width: 58px; color: #fff; }
+  #dLog i { font-style: normal; color: #4ff26a; }
   /* TEST ONLY: glitch indicator */
   #glitchTag { position: absolute; top: calc(18% + 64px); left: 50%; transform: translateX(-50%) skewX(-8deg); padding: 6px 16px; border-radius: 10px; background: #a24bd8; color: #fff;
     font-size: 20px; font-weight: 900; letter-spacing: 1px; opacity: 0; transition: opacity .4s; white-space: nowrap; box-shadow: 0 0 18px rgba(162,75,216,.7); text-shadow: 2px 0 #29e6ff, -2px 0 #ff3bd4; }
@@ -144,6 +158,12 @@
   <div id="crossDist"></div>
   <div id="toast"></div>
   <div id="glitchTag"></div><!-- TEST ONLY -->
+  <div id="demoBox" class="hidden"><!-- TEST ONLY -->
+    <div id="dTitle"></div>
+    <div class="dSub">Zeitlupe 0,4× · Esc = abbrechen</div>
+    <div class="dKeys"><span id="kHook">E / Maus</span><span id="kWheel">Leertaste</span><span id="kAim">🎯 Zielen</span></div>
+    <div id="dLog"></div>
+  </div>
   <div id="hint"><span class="kbOnly"><kbd>E</kbd> / <kbd>Linksklick</kbd> halten = Greifhaken &nbsp;·&nbsp; <kbd>Leertaste</kbd> halten = Räder</span><span class="touchOnly">Wischen = umschauen &nbsp;·&nbsp; <kbd>HAKEN</kbd> halten = ranziehen &nbsp;·&nbsp; <kbd>RÄDER</kbd> halten = Räder</span></div>
   <div id="speedo"><div class="v"><span id="spd">0</span><small>km/h</small></div><div class="l"><span id="lapTxt">RUNDE 1/3</span> &nbsp;·&nbsp; <span id="timeTxt">0:00.00</span></div></div>
   <button id="tHook" class="touchOnly"><b>🪝</b>HAKEN</button>
@@ -2888,6 +2908,7 @@ const _Z = { ax: 0, az: 0, fric: 1, fricAdd: 0, spin: null };
 function physStep(dt) {
   simT += dt;
   if (ADMIN.jobs.length && state === 'race') adminTick();
+  if (DEMO.active) demoTick(dt);
   P.yPrev = P.y;
   if (!paused) updateElements(dt);
   updateHook(dt);
@@ -3189,90 +3210,216 @@ function adminAttach(point, fresh = false) {
 }
 const groundBar = (s) => s.h < 0.3 && (s.barL || s.barR);
 const barSide = (s) => (s.barR && (!s.barL || s.k >= 0) ? 1 : -1);
+// ---------- demos: lead-up + every input visible, in slow motion ----------
+const DEMO = { active: false, scale: 0.4, steps: [], cur: 0, t0: 0, stepT: 0, aim: null, lastInput: -9, keys: {} };
+const fmtS = (t) => t.toFixed(2).replace('.', ',') + ' s';
+function demoLog(txt, input = false) {
+  const el = document.getElementById('dLog'), t = simT - DEMO.t0;
+  let extra = '';
+  if (input) { if (DEMO.lastInput > -9) extra = ` <i>(${fmtS(simT - DEMO.lastInput)} danach)</i>`; DEMO.lastInput = simT; }
+  const row = document.createElement('div'); row.className = input ? 'in' : 'note';
+  row.innerHTML = `<b>+${fmtS(t)}</b> ${txt}${extra}`;
+  el.appendChild(row); while (el.children.length > 9) el.removeChild(el.firstChild);
+}
+function demoKey(k, on) { DEMO.keys[k] = on; const el = document.getElementById(k === 'hook' ? 'kHook' : k === 'wheel' ? 'kWheel' : 'kAim'); if (el) el.classList.toggle('on', on); }
+// direction from the camera to a point → look yaw / pitch
+function lookAtAngles(pt) {
+  const ex = P.x, ey = P.y + FLOE_TOP + 1.02, ez = P.z, dx = pt.x - ex, dy = pt.y - ey, dz = pt.z - ez;
+  return [Math.atan2(-dx, -dz), Math.atan2(dy, Math.hypot(dx, dz))];
+}
+// step builders
+const D = {
+  wait: (sec, note) => ({ wait: sec, note }),
+  until: (fn, note, timeout = 6) => ({ until: fn, note, timeout }),
+  aim: (pt, note = 'Zielen (Kamera schwenkt)') => ({ run() { DEMO.aim = { pt: typeof pt === 'function' ? (DEMO.pt = pt()) : (DEMO.pt = pt), t: 0, dur: 0.16, from: [look.yaw, look.pitch] }; demoKey('aim', true); }, note, input: true }),
+  hook: (pt, note = 'E / Linksklick drücken – Haken schießen') => ({ run() { holdKey = true; fireHook(typeof pt === 'function' ? DEMO.pt : pt); demoKey('hook', true); }, note, input: true }),
+  hookUp: (note = 'E / Linksklick loslassen') => ({ run() { holdKey = false; if (!holding()) releaseHook(); demoKey('hook', false); }, note, input: true }),
+  wheels: (note = 'Leertaste drücken') => ({ run() { wheelsPress(); demoKey('wheel', true); }, note, input: true }),
+  wheelsUp: (note = 'Leertaste loslassen') => ({ run() { wheelsRelease(); demoKey('wheel', false); }, note, input: true }),
+  note: (note) => ({ run() {}, note }),
+  fn: (f) => ({ run: f }),
+};
+function demoStart(title, steps) {
+  ADMIN.jobs = [];
+  Object.assign(DEMO, { active: true, steps, cur: 0, t0: simT, stepT: simT, aim: null, lastInput: -9 });
+  document.getElementById('dTitle').textContent = '🛠 DEMO: ' + title;
+  document.getElementById('dLog').innerHTML = '';
+  for (const k of ['hook', 'wheel', 'aim']) demoKey(k, false);
+  document.getElementById('demoBox').classList.remove('hidden', 'fade');
+}
+function demoStop() {
+  if (!DEMO.active) return;
+  DEMO.active = false; DEMO.aim = null;
+  holdKey = false; holdSpace = false; holdAdmin = false;
+  for (const k of ['hook', 'wheel', 'aim']) demoKey(k, false);
+  document.getElementById('demoBox').classList.add('fade');
+}
+function demoTick(dt) {
+  // smooth aim flick (follows moving targets)
+  if (DEMO.aim) {
+    const a = DEMO.aim; a.t += dt;
+    const [ty, tp] = lookAtAngles(a.pt), k = smooth(Math.min(1, a.t / a.dur));
+    look.yaw = a.from[0] + angDiff(a.from[0], ty) * k; look.pitch = lerp(a.from[1], tp, k);
+    if (a.t >= a.dur + 0.25) { DEMO.aim = null; demoKey('aim', false); }
+  }
+  for (let guard = 0; guard < 8 && DEMO.active; guard++) {
+    const st = DEMO.steps[DEMO.cur];
+    if (!st) { if (simT - DEMO.stepT > 2.5) demoStop(); return; }
+    if (st.wait != null && simT - DEMO.stepT < st.wait) return;
+    if (st.until && !st.until() && simT - DEMO.stepT < st.timeout) return;
+    if (st.run) st.run();
+    if (st.note) demoLog(st.note, !!st.input);
+    DEMO.cur++; DEMO.stepT = simT;
+  }
+}
+const noElemNear = (i, n = 60) => ELEM.list.every((el) => { if (!el.p) return true; let d = Math.abs(el.p.i - i); d = Math.min(d, NS - d); return d > n; });
+const groundStraight = (s) => groundBar(s) && groundBar(tsAt(s.i + 30)) && groundBar(tsAt(s.i - 30)) && Math.abs(s.k) < 1 / 40 && !s.under && !tsAt(s.i + 30).under && !tsAt(s.i - 30).under;
+const timeToLand = () => { const h = Math.max(0, P.y - _q.h); return (P.vy + Math.sqrt(P.vy * P.vy + 2 * G_AIR * h)) / G_AIR; };
+const ceilPt = (s, lat = 0, ahead = 0) => new V3(s.x + s.nx * lat + s.tx * ahead, HALL.h, s.z + s.nz * lat + s.tz * ahead);
 const ADMIN_RUN = {
   'seil-snap'() {
-    const i = P.idx; adminPlace(i, 0, 0, 12);
-    const a = tsAt(i + 50), pt = new V3(a.x, a.h + 0.3, a.z);
-    adminAttach(pt);
-    adminLater(0.3, () => { hook.ropeLen = Math.hypot(pt.x - P.x, pt.z - P.z); releaseHook(false); });
-    adminLater(0.4, () => { hook.state = 'idle'; fireHook(pt); });
-    adminLater(1.4, () => { holdKey = false; releaseHook(); });
-    return true;
+    const i = P.idx; adminPlace(i, 0, 0, 9);
+    let A = null; const pickA = () => { const a = tsAt(P.idx + 110); return (A = new V3(a.x, a.h + 0.2, a.z)); };
+    const At = () => A;
+    return ['Seil-Snap', [
+      D.note('Anlauf'), D.wait(0.5), D.aim(pickA, 'Ziel weit vorne auf dem Boden anvisieren'), D.wait(0.3),
+      D.hook(At), D.until(() => hook.state === 'attached', 'Haken greift', 1.5), D.wait(0.5, 'Seil zieht – Seil ist straff'),
+      D.hookUp('E loslassen …'), D.wait(0.07), D.hook(At, '… und sofort wieder E (max. 0,12 s)'),
+      D.wait(1.2, 'Schub! (Glitch-Geräusch)'), D.hookUp(),
+    ]];
   },
   'bandenreiten'() {
-    const i = adminFind((s) => groundBar(s) && groundBar(tsAt(s.i + 40)) && Math.abs(s.k) < 1 / 25);
+    // the same barrier must run without a gap from the take-off to well past the landing
+    const sideOk = (i, key) => { for (let k = -40; k <= 110; k += 4) { const t = tsAt(i + k); if (!t[key] || t.h > 0.3 || t.under) return false; } return true; };
+    let i = -1, side = 1;
+    for (const n of [90, 45, 20]) {
+      i = adminFind((s) => Math.abs(s.k) < 1 / 40 && (sideOk(s.i, 'barR') || sideOk(s.i, 'barL')) && noElemNear(s.i, n));
+      if (i >= 0) break;
+    }
     if (i < 0) return false;
-    const side = barSide(TS[i]);
-    adminPlace(i, side * (HW + 0.55), (WORLD.barH || 0.95) + 0.35, 20); P.vy = -1.5;
-    return true;
+    side = sideOk(i, 'barR') ? 1 : -1;
+    const st = tsAt(i - 40);
+    adminPlace(st.i, side * (LIM - 0.6), 0, 13);
+    const C = () => ceilPt(tsAt(P.idx + 30), side * (HW + 0.55));
+    let assist = false;
+    return ['Bandenreiten', [
+      D.note('Anlauf, etwas zur Seite der Bande'), D.wait(0.5), D.aim(C, 'Decke über der Bande anvisieren'), D.wait(0.25),
+      D.hook(C, 'E drücken – Haken an die Decke → Sprung'), D.until(() => hook.state === 'attached', 'Haken greift', 1.5),
+      D.until(() => (P.y - _q.h > 2.5 && P.vy < 2) || hook.state !== 'attached', 'hochziehen lassen'),
+      D.hookUp('über der Bande: E loslassen'),
+      D.fn(() => { assist = true; }),
+      D.until(() => { // demo help: steer the flight so it comes down exactly on the barrier top
+        const relTop = (WORLD.barH || 0.95) + 0.05, h = P.y - _q.h - relTop;
+        if (assist && !P.ride && !P.grounded && P.vy < 0 && h > 0.05) {
+          const tl = (P.vy + Math.sqrt(P.vy * P.vy + 2 * G_AIR * h)) / G_AIR;
+          const want = clamp((side * (HW + 0.55) - _q.lat) / Math.max(0.12, tl), -10, 10);
+          const fwd = Math.max(11, P.vx * _q.tx + P.vz * _q.tz); // keep enough speed for the trick (demo help)
+          P.vx = _q.tx * fwd + _q.nx * want; P.vz = _q.tz * fwd + _q.nz * want;
+        }
+        return P.ride !== 0 || P.grounded;
+      }, 'genau auf der Bandenkante landen'),
+      D.wait(2.5, 'du rutschst auf der Bande und lenkst automatisch mit'),
+    ]];
   },
   'raeder-trampolin'() {
-    adminPlace(P.idx, 0, 1.2, 12); P.vy = -2;
-    holdAdmin = true; P.wheelPressT = simT; P.wheelYaw = P.yaw;
-    adminLater(3, () => { holdAdmin = false; });
-    return true;
+    const i = P.idx; adminPlace(i, 0, 0, 10);
+    const C = () => ceilPt(tsAt(P.idx + 26));
+    return ['Räder-Trampolin', [
+      D.note('Anlauf'), D.wait(0.4), D.aim(C, 'Decke vor dir anvisieren'), D.wait(0.25), D.hook(C, 'E drücken – Sprung'), D.until(() => hook.state === 'attached', 'Haken greift', 1.5),
+      D.until(() => P.vy < 0.5 && P.y - _q.h > 1, 'hochziehen lassen'), D.hookUp('Scheitelpunkt: E loslassen'),
+      D.until(() => P.vy < 0 && timeToLand() < 0.35, 'fallen …'),
+      D.wheels('Leertaste drücken & HALTEN (max. 0,5 s vor der Landung)'),
+      D.until(() => P.vy > 5 || (P.grounded && P.vy === 0 && simT - P.wheelPressT > 0.6), 'Landung → Trampolin!'),
+      D.wait(1.8, 'Flug (geht auch durch Brücken)'), D.wheelsUp(),
+    ]];
   },
   'doppelbumper'() {
     let best = null, bd = 1e9;
     for (const el of ELEM.list) if (el.type === 'bumper') { let d = Math.abs(el.p.i - P.idx); d = Math.min(d, NS - d); if (d < bd) { bd = d; best = el; } }
     if (!best) return false;
-    adminPlace(best.p.i - 7, best.p.lat, 0, 14);
-    adminAttach(new V3(best.x, best.y + 0.8, best.z));
-    adminLater(1.2, () => { holdKey = false; releaseHook(); });
-    return true;
+    const st = tsAt(best.p.i - 26), sx = st.x + st.nx * best.p.lat, sz = st.z + st.nz * best.p.lat;
+    adminPlace(st.i, best.p.lat, 0, 11, Math.atan2(-(best.x - sx), -(best.z - sz)));
+    const B = new V3(best.x, best.y + 0.8, best.z);
+    return ['Doppelbumper', [
+      D.note('Anlauf direkt auf den Bumper zu'),
+      D.until(() => Math.hypot(P.x - B.x, P.z - B.z) < 7, 'näher kommen …'),
+      D.aim(B, 'kurz vorher: Bumper anvisieren'), D.wait(0.08), D.hook(B, 'E drücken – Bumper anhaken (max. 0,6 s vor dem Aufprall)'), D.until(() => hook.state === 'attached', 'Haken greift', 1),
+      D.until(() => hook.state !== 'attached' || P.wall > 0, 'Aufprall → doppelter Kick!', 2), D.hookUp(), D.wait(1.5),
+    ]];
   },
   'decken-clip'() {
-    const i = adminFind((s, k) => s.under && s.h < 0.1 && !tsAt(k - 1).under);
+    let i = adminFind((s, k) => s.under && s.h < 0.1 && !tsAt(k - 1).under && noElemNear(k, 50));
+    if (i < 0) i = adminFind((s, k) => s.under && s.h < 0.1 && !tsAt(k - 1).under);
     if (i < 0) return false;
-    adminPlace(i + 4, 0, 2.0, 6); P.vy = 7;
-    return true;
+    adminPlace(i - 40, 0, 0, 8);
+    const z = TS[(i + 6) % NS], A = new V3(z.x, z.ceil - 0.9, z.z);
+    return ['Decken-Clip', [
+      D.note('Anlauf unter die Brücke'),
+      D.until(() => Math.hypot(P.x - A.x, P.z - A.z) < 4.6, 'bis kurz vor den Brückenanfang'),
+      D.aim(A, 'Unterseite am Brückenanfang anvisieren (steil)'), D.wait(0.06), D.hook(A, 'E drücken – Sprung gegen die Unterseite'), D.until(() => hook.state === 'attached', 'Haken greift', 1.5),
+      D.until(() => P.noCeil, 'mit Schwung an den Rand → durch!', 2), D.hookUp(), D.wait(2, 'oben auf der Brücke'),
+    ]];
   },
   'seil-zieher'() {
-    const i = adminFind((s, k) => s.under && s.h < 0.1 && tsAt(k - 24).under && tsAt(k + 24).under);
+    let i = adminFind((s, k) => s.under && s.h < 0.1 && tsAt(k - 24).under && tsAt(k + 24).under && noElemNear(k, 50));
+    if (i < 0) i = adminFind((s, k) => s.under && s.h < 0.1 && tsAt(k - 24).under && tsAt(k + 24).under);
     if (i < 0) return false;
-    adminPlace(i, 0, 0, 3);
-    const s = TS[i], pt = new V3(s.x + s.tx * 4, s.ceil - 0.9, s.z + s.tz * 4);
-    adminAttach(pt, true);
+    adminPlace(i - 3, 0, 0, 0);
+    const s = TS[i], A = new V3(s.x + s.tx * 3, s.ceil - 0.9, s.z + s.tz * 3);
     const t0 = simT;
-    adminWatch(() => {
-      if (P.bumpT < t0) return false;
-      adminLater(0.15, () => { hook.state = 'idle'; fireHook(pt); adminLater(0.8, () => { holdKey = false; releaseHook(); }); });
-      return true;
-    });
-    return true;
+    return ['Seil-Zieher', [
+      D.note('Anlauf unter die Brückenmitte'),
+      D.until(() => Math.hypot(P.x - A.x, P.z - A.z) < (A.y - P.y - 1.3) * 1.15, 'bis die Unterseite steil über dir ist'),
+      D.aim(A, 'Unterseite steil über dir anvisieren'), D.wait(0.06), D.hook(A, 'E drücken – Sprung'), D.until(() => hook.state === 'attached', 'Haken greift', 1.5),
+      D.until(() => P.bumpT > t0, 'Kopf stößt an die Brücke', 2),
+      D.wait(0.1), D.hookUp('E loslassen …'), D.wait(0.05), D.hook(A, '… und sofort neu schießen (max. 0,35 s nach dem Anstoßen)'),
+      D.wait(1.2, 'durchgezogen!'), D.hookUp(), D.wait(1.5),
+    ]];
   },
   'kreuzungs-verwechslung'() {
     const i = adminFind((s) => {
       if (s.alt == null || s.alt < 0) return false;
       let d = s.alt - s.i; if (d < 0) d += NS;
       const b = TS[s.alt];
-      // where the floe will stand (at the edge toward the other piece) must be close enough for the glitch
       const dd = Math.hypot(s.x - b.x, s.z - b.z), sg = Math.sign((b.x - s.x) * s.nx + (b.z - s.z) * s.nz) || 1, lat = dd < HW ? 0 : sg * (LIM - 0.4);
       return d > 0 && d <= NS * 0.7 && Math.hypot(s.x + s.nx * lat - b.x, s.z + s.nz * lat - b.z) <= TRACK_W + 4.5 && Math.abs(s.h - b.h) < 2;
     });
     if (i < 0) return false;
     const s = TS[i], b = TS[s.alt], sg = Math.sign((b.x - s.x) * s.nx + (b.z - s.z) * s.nz) || 1;
-    const dd = Math.hypot(s.x - b.x, s.z - b.z);
-    adminPlace(i, dd < HW ? 0 : sg * (LIM - 0.4), 0, 15);
-    P.wheelPressT = simT; tryCrossSwap();
-    return true;
+    const lat = Math.hypot(s.x - b.x, s.z - b.z) < HW ? 0 : sg * (LIM - 0.4);
+    const st = tsAt(i - 16);
+    adminPlace(st.i, lat, 0, 10);
+    const near = () => { let d = Math.abs(P.idx - i); d = Math.min(d, NS - d); return d <= 2; };
+    return ['Kreuzungs-Verwechslung', [
+      D.note(lat ? 'Anlauf am Rand, nah am anderen Streckenteil' : 'Anlauf auf die Kreuzung'),
+      D.until(near, 'genau an der Stelle …'), D.wheels('Leertaste antippen …'), D.wait(0.08), D.wheelsUp('… und sofort loslassen (max. 0,3 s)'),
+      D.wait(2, 'du bist jetzt auf dem anderen Streckenteil'),
+    ]];
   },
   'wand-clip'() {
-    const i = adminFind((s) => groundBar(s) && groundBar(tsAt(s.i + 30)) && Math.abs(s.k) < 1 / 60);
+    let i = -1;
+    for (const n of [70, 35, 15]) { i = adminFind((s) => groundStraight(s) && noElemNear(s.i, n)); if (i >= 0) break; }
     if (i < 0) return false;
-    const s = TS[i], side = s.barR ? 1 : -1, a = PI / 4;
-    adminPlace(i, side * (LIM - 2.5), 0, 0);
-    P.vx = (s.tx * Math.cos(a) + s.nx * side * Math.sin(a)) * 16; P.vz = (s.tz * Math.cos(a) + s.nz * side * Math.sin(a)) * 16;
-    adminWatch(() => { if (P.wall > 0 || P.clipUntil > simT) return true; if (Math.abs(_q.lat) > LIM - 0.9) { P.wheelPressT = simT; return true; } return false; }, 2);
-    return true;
+    const s = tsAt(i - 10), side = TS[i].barR ? 1 : -1;
+    adminPlace(s.i, -side * (LIM - 0.5), 0, 0);
+    const w = tp(TS[i], side * (LIM + 0.5), 0), dx = w.x - P.x, dz = w.z - P.z, dl = Math.hypot(dx, dz); // aim straight at a point of the wall
+    P.vx = dx / dl * 16; P.vz = dz / dl * 16;
+    look.yaw = Math.atan2(-P.vx, -P.vz);
+    return ['Wand-Clip', [
+      D.note('schräg (45°) mit 58 km/h auf die Bande zu'),
+      D.until(() => P.wall > 0 || P.clipUntil > simT, 'Aufprall …'),
+      D.wheels('direkt danach Leertaste antippen (bis 0,15 s vor oder nach dem Aufprall)'), D.wait(0.08), D.wheelsUp(),
+      D.wait(2, 'durch die Bande gerutscht'),
+    ]];
   },
 };
 function adminRun(name) {
   if (state === 'countdown') { race.cd = 0.001; race.cdStep = 1; updateCountdown(0.01); }
   if (state !== 'race') return;
-  ADMIN.jobs = [];
-  if (!ADMIN_RUN[name]()) toast('🛠 Auf dieser Strecke gibt es dafür keine Stelle', 2200, true);
-  else toast('🛠 Vorführung: ' + GLITCH_NAMES[name], 1400);
+  ADMIN.jobs = []; demoStop();
+  const r = ADMIN_RUN[name]();
+  if (!r) { toast('🛠 Auf dieser Strecke gibt es dafür keine Stelle', 2200, true); return; }
+  demoStart(r[0], r[1]);
 }
 // nearest piece of track below the floe (after hopping across the infield)
 function nearestPiece(x, z, y) {
@@ -3449,7 +3596,10 @@ function lock() {
   catch (e) { /* ignore */ }
 }
 function startRace() { SFX.init(); SFX.click(); paused = false; resetRace(); lock(); }
+function wheelsPress() { aimWheels(); holdSpace = true; P.wheelPressT = simT; tryLateWallClip(); }
+function wheelsRelease() { if (holdSpace && simT - P.wheelPressT < 0.3) tryCrossSwap(); holdSpace = false; }
 function pauseGame() {
+  demoStop();
   if (paused || (state !== 'race' && state !== 'countdown')) return;
   paused = true; holdMouse = holdKey = holdTouch = holdSpace = holdWheelTouch = false; $('tHook').classList.remove('on'); $('tWheels').classList.remove('on');
   SFX.mute();
@@ -3507,12 +3657,14 @@ document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement) $('lockMsg').classList.add('hidden');
 });
 document.addEventListener('mousemove', (e) => {
+  if (DEMO.active) return;
   if (!playing() || !document.pointerLockElement) return;
   const k = 0.0022 * SETTINGS.sens;
   look.yaw -= e.movementX * k;
   look.pitch = clamp(look.pitch - e.movementY * k * (SETTINGS.inv ? -1 : 1), -1.45, 1.45);
 });
 canvas.addEventListener('mousedown', (e) => {
+  if (DEMO.active) return;
   if (!playing()) return;
   if (!document.pointerLockElement) { lock(); return; }
   if (e.button === 0) { holdMouse = true; fireHook(); }
@@ -3522,7 +3674,8 @@ document.addEventListener('mouseup', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (touchMode) setTouch(false);
-  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (!e.repeat && playing()) { aimWheels(); holdSpace = true; P.wheelPressT = simT; tryLateWallClip(); } return; }
+  if (DEMO.active && e.code !== 'Escape' && e.code !== 'KeyP') { e.preventDefault(); return; }
+  if (e.code === 'Space') { e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (!e.repeat && playing()) wheelsPress(); return; }
   if (e.code === 'KeyE' && !e.repeat) { if (playing()) { holdKey = true; fireHook(); } }
   else if (e.code === 'KeyR' && !e.repeat && (state === 'race' || state === 'countdown' || state === 'finished') && !paused) startRace();
   else if (e.code === 'KeyP' && !e.repeat) { if (paused && !settingsFromMenu) resumeGame(); else pauseGame(); }
@@ -3530,7 +3683,8 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('keyup', (e) => {
   if (e.code === 'KeyE' && holdKey) { holdKey = false; if (!holding()) releaseHook(); }
-  if (e.code === 'Space') { e.preventDefault(); if (holdSpace && simT - P.wheelPressT < 0.3) tryCrossSwap(); holdSpace = false; }
+  if (DEMO.active) return;
+  if (e.code === 'Space') { e.preventDefault(); wheelsRelease(); }
 });
 window.addEventListener('blur', () => { holdMouse = holdKey = holdTouch = holdSpace = holdWheelTouch = false; if (hook.state === 'attached') releaseHook(); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -3563,6 +3717,7 @@ canvas.addEventListener('touchcancel', endLook);
 // the hook button also works as a look pad: drag while holding to keep aiming
 let hookTouch = null;
 $('tHook').addEventListener('touchstart', (e) => {
+  if (DEMO.active) { e.preventDefault(); return; }
   e.preventDefault();
   const t = e.changedTouches[0];
   hookTouch = { id: t.identifier, x: t.clientX, y: t.clientY };
@@ -3590,7 +3745,7 @@ const endHook = (e) => {
 $('tHook').addEventListener('touchend', endHook, { passive: false });
 $('tHook').addEventListener('touchcancel', endHook, { passive: false });
 const wheelsBtn = $('tWheels');
-wheelsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!playing()) return; aimWheels(); holdWheelTouch = true; P.wheelPressT = simT; tryLateWallClip(); wheelsBtn.classList.add('on'); }, { passive: false });
+wheelsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!playing() || DEMO.active) return; aimWheels(); holdWheelTouch = true; P.wheelPressT = simT; tryLateWallClip(); wheelsBtn.classList.add('on'); }, { passive: false });
 const endWheels = (e) => { e.preventDefault(); if (holdWheelTouch && simT - P.wheelPressT < 0.3) tryCrossSwap(); holdWheelTouch = false; wheelsBtn.classList.remove('on'); };
 wheelsBtn.addEventListener('touchend', endWheels, { passive: false });
 wheelsBtn.addEventListener('touchcancel', endWheels, { passive: false });
@@ -3719,7 +3874,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!paused) {
     if (state === 'countdown') updateCountdown(dt);
-    accT += dt;
+    accT += dt * (DEMO.active ? DEMO.scale : 1);
     while (accT >= STEP) { physStep(STEP); accT -= STEP; }
   }
   updateVisuals(paused ? 0 : dt, now);
