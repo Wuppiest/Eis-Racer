@@ -22,7 +22,19 @@ const G_AIR = 9.81;
 const BAR_OUT = 1.15;     // barrier band outside the track edge (m)
 // ---------- glitches (bugs that stayed in as features – precise inputs only) ----------
 let simT = 0;             // physics clock
-function glitch(name) { SFX.glitch(); (window.__glitch || (window.__glitch = [])).push(name); }
+// TEST ONLY: shows which glitch you just pulled off – set to false (or remove) later
+const GLITCH_DEBUG = true;
+const GLITCH_NAMES = { 'seil-snap': 'Seil-Snap', 'bandenreiten': 'Bandenreiten', 'raeder-trampolin': 'Räder-Trampolin', 'doppelbumper': 'Doppelbumper',
+  'decken-clip': 'Decken-Clip', 'seil-zieher': 'Seil-Zieher', 'kreuzungs-verwechslung': 'Kreuzungs-Verwechslung', 'wand-clip': 'Wand-Clip' };
+let glitchTimer = 0;
+function glitch(name) {
+  SFX.glitch(); (window.__glitch || (window.__glitch = [])).push(name);
+  if (!GLITCH_DEBUG) return;
+  const el = document.getElementById('glitchTag');
+  el.textContent = '🐛 BUG: ' + (GLITCH_NAMES[name] || name);
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  clearTimeout(glitchTimer); glitchTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
 function capSpeed(max) { const v = Math.hypot(P.vx, P.vz); if (v > max) { P.vx *= max / v; P.vz *= max / v; } }
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
 const WHEEL_TIME = 0.28;  // seconds to extend / retract

@@ -54,6 +54,11 @@
 
   #toast { position: absolute; top: 18%; left: 50%; transform: translateX(-50%); font-size: 26px; font-weight: 900; padding: 10px 24px; background: rgba(15,18,32,.66); border: 2px solid rgba(255,255,255,.18); border-radius: 14px; opacity: 0; transition: opacity .35s; white-space: nowrap; font-variant-numeric: tabular-nums; }
   #toast.show { opacity: 1; transition: none; }
+  /* TEST ONLY: glitch indicator */
+  #glitchTag { position: absolute; top: calc(18% + 64px); left: 50%; transform: translateX(-50%) skewX(-8deg); padding: 6px 16px; border-radius: 10px; background: #a24bd8; color: #fff;
+    font-size: 20px; font-weight: 900; letter-spacing: 1px; opacity: 0; transition: opacity .4s; white-space: nowrap; box-shadow: 0 0 18px rgba(162,75,216,.7); text-shadow: 2px 0 #29e6ff, -2px 0 #ff3bd4; }
+  #glitchTag.show { opacity: 1; transition: none; animation: gtag .35s steps(3); }
+  @keyframes gtag { 0% { transform: translateX(-46%) skewX(-8deg); } 50% { transform: translateX(-54%) skewX(-8deg); } 100% { transform: translateX(-50%) skewX(-8deg); } }
   #toast.warn { background: rgba(200,30,30,.78); }
   #toast b { color: #ffe066; } #toast i { font-style: normal; color: #4ff26a; }
 
@@ -132,6 +137,7 @@
   <div id="cross"><div class="ring"></div><div class="dot"></div><div class="t a"></div><div class="t b"></div><div class="t c"></div><div class="t d"></div></div>
   <div id="crossDist"></div>
   <div id="toast"></div>
+  <div id="glitchTag"></div><!-- TEST ONLY -->
   <div id="hint"><span class="kbOnly"><kbd>E</kbd> / <kbd>Linksklick</kbd> halten = Greifhaken &nbsp;·&nbsp; <kbd>Leertaste</kbd> halten = Räder</span><span class="touchOnly">Wischen = umschauen &nbsp;·&nbsp; <kbd>HAKEN</kbd> halten = ranziehen &nbsp;·&nbsp; <kbd>RÄDER</kbd> halten = Räder</span></div>
   <div id="speedo"><div class="v"><span id="spd">0</span><small>km/h</small></div><div class="l"><span id="lapTxt">RUNDE 1/3</span> &nbsp;·&nbsp; <span id="timeTxt">0:00.00</span></div></div>
   <button id="tHook" class="touchOnly"><b>🪝</b>HAKEN</button>
@@ -2669,7 +2675,19 @@ const G_AIR = 9.81;
 const BAR_OUT = 1.15;     // barrier band outside the track edge (m)
 // ---------- glitches (bugs that stayed in as features – precise inputs only) ----------
 let simT = 0;             // physics clock
-function glitch(name) { SFX.glitch(); (window.__glitch || (window.__glitch = [])).push(name); }
+// TEST ONLY: shows which glitch you just pulled off – set to false (or remove) later
+const GLITCH_DEBUG = true;
+const GLITCH_NAMES = { 'seil-snap': 'Seil-Snap', 'bandenreiten': 'Bandenreiten', 'raeder-trampolin': 'Räder-Trampolin', 'doppelbumper': 'Doppelbumper',
+  'decken-clip': 'Decken-Clip', 'seil-zieher': 'Seil-Zieher', 'kreuzungs-verwechslung': 'Kreuzungs-Verwechslung', 'wand-clip': 'Wand-Clip' };
+let glitchTimer = 0;
+function glitch(name) {
+  SFX.glitch(); (window.__glitch || (window.__glitch = [])).push(name);
+  if (!GLITCH_DEBUG) return;
+  const el = document.getElementById('glitchTag');
+  el.textContent = '🐛 BUG: ' + (GLITCH_NAMES[name] || name);
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  clearTimeout(glitchTimer); glitchTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
 function capSpeed(max) { const v = Math.hypot(P.vx, P.vz); if (v > max) { P.vx *= max / v; P.vz *= max / v; } }
 // retractable wheels (hold Space): roll only along the floe's nose direction, no steering
 const WHEEL_TIME = 0.28;  // seconds to extend / retract
