@@ -30,7 +30,7 @@ Wird beim ersten Antippen automatisch erkannt (am besten im Querformat). Sobald 
 Das Fadenkreuz leuchtet **türkis**, wenn der Haken etwas treffen würde (Reichweite 80 m), und **orange**, solange du eingehakt bist.
 
 ### Hüpfen
-Hängt der Haken hoch über dir (Decke, Fachwerk, Banner, hohe Pfosten), springst du beim Einhaken kurz hoch, wie bei einem Sprung (in einer halben Sekunde auf etwa 1,5 m). Solange du dranbleibst, steigst du danach nur noch langsam bis auf gut 2 m. So hüpfst du über Kurvenecken und Banden. Weit entfernte Anker geben nur einen kleinen Hüpfer.
+Hängt der Haken hoch über dir (Decke, Fachwerk, Banner, hohe Pfosten), springst du beim Einhaken hoch wie bei einem Sprung (auf gut 3 m). Solange du dranbleibst, steigst du danach nur noch langsam bis auf gut 2 m. So hüpfst du über Kurvenecken und Banden. Weit entfernte Anker geben nur einen kleinen Hüpfer.
 
 ## Regeln
 - 3 Runden auf Zeit. Die Uhr startet bei „LOS!“.
